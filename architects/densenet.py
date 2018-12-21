@@ -6,11 +6,9 @@ import torchvision
 import torchvision.transforms as transforms
 
 from dawnet.models.perceive import BaseModel
-from dawnet.models.convs import ResidualBottleneckPreactUnit
+from dawnet.models.convs import DenseUnit
 
-
-# ResidualBottleneckPreactUnit (no dropout): 50,000 -> 0.6883
-# ResidualBottleneckPreactUnit (0.3): 50,000
+# Dropout 0.3: 50,000 -> 0.6589
 
 TRANSFORM_TRAIN = transforms.Compose(
     [transforms.RandomHorizontalFlip(),
@@ -27,58 +25,55 @@ CLASSES = ('plane', 'car', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
 
-class WideResNet(BaseModel):
-    """Wide ResNet implementation using dawnet. The architecture is
-    documented here:
-        https://arxiv.org/abs/1605.07146
-        https://github.com/szagoruyko/wide-residual-networks/
-
-    The Github link provides architecture detail about WideResNet. Basically:
-        - depth of the networks should be 6n + 4
-        - the number of channels in each convolution is multiple of either
-        16, 32 or 64
-        - each block uses preact architecture:
-                bn -> relu -> conv2d -> bn -> relu -> conv2d -> + id
-        - blocks are then grouped:
-            - conv0:
-            - group0: in 16 channels, out 16x channels, n consec blocks
-            - group1: in 16x channels, out 32x channels, n consec blocks
-            - group2: in 32x channels, out 64x channels, n consec blocks
-            - bn -> relu -> global_avg -> linear -> softmax
+class DenseNet(BaseModel):
+    """Implementation of DenseNet on the CIFAR10 dataset. The detail of
+    DenseNet can be referenced here:
+        https://arxiv.org/abs/1608.06993
+        https://github.com/liuzhuang13/DenseNet
     """
+    def __init__(self, name=None):
+        """Initialize DenseNet"""
+        super(DenseNet, self).__init__(name=name)
 
-    def __init__(self, depth=4, width=1, dropout=None, name=None):
-        """Initialize the model"""
-        super(WideResNet, self).__init__(name=name)
         self.convs = nn.Sequential()
         self.convs.add_module(
             'conv0',
-            nn.Conv2d(
-                in_channels=3, out_channels=16, kernel_size=3, stride=1,
-                padding=1, bias=False))
-        self.convs.add_module(
-            'group0',
-            self.construct_residual_block(
-                in_channels=16, out_channels=16*width, stride=1,
-                n_units=depth, unit_type=ResidualBottleneckPreactUnit,
-                dropout=dropout))
-        self.convs.add_module(
-            'group1',
-            self.construct_residual_block(
-                in_channels=16*width, out_channels=32*width, stride=2,
-                n_units=depth, unit_type=ResidualBottleneckPreactUnit,
-                dropout=dropout))
-        self.convs.add_module(
-            'group2',
-            self.construct_residual_block(
-                in_channels=32*width, out_channels=64*width, stride=2,
-                n_units=depth, unit_type=ResidualBottleneckPreactUnit,
-                dropout=dropout))
-        self.convs.add_module('bn', nn.BatchNorm2d(64*width))
+            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1,
+                      padding=1, bias=False))
+
+        dense0, channels = self.construct_dense_block(
+            in_channels=16, growth_rate=12, n_units=16, dropout=0.3)
+        self.convs.add_module('dense0', dense0)
+
+        trans0, channels = self.construct_dense_transition_block(
+            in_channels=channels, compression=0.5)
+        self.convs.add_module('trans0', trans0)
+
+        dense1, channels = self.construct_dense_block(
+            in_channels=channels, growth_rate=12, n_units=16, dropout=0.3)
+        self.convs.add_module('dense1', dense1)
+
+        trans1, channels = self.construct_dense_transition_block(
+            in_channels=channels, compression=0.5)
+        self.convs.add_module('trans1', trans1)
+
+        dense2, channels = self.construct_dense_block(
+            in_channels=channels, growth_rate=12, n_units=16, dropout=0.3)
+        self.convs.add_module('trans2', dense2)
+
+        self.convs.add_module('bn', nn.BatchNorm2d(channels))
         self.convs.add_module('relu', nn.ReLU())
         self.convs.add_module('gap', nn.AdaptiveAvgPool2d(output_size=(1, 1)))
 
-        self.linear = nn.Linear(in_features=64*width, out_features=10)
+        self.linear = nn.Linear(in_features=channels, out_features=10)
+
+    def forward(self, input_x):
+        """Perform the forward pass"""
+        hidden = self.convs(input_x)
+        hidden = hidden.view(input_x.size(0), -1)
+        output = self.linear(hidden)
+
+        return output
 
     def x_initialize(self):
         """Set up the optimizer"""
@@ -188,15 +183,10 @@ class WideResNet(BaseModel):
     def get_save_state(self):
         return {}
 
-    def forward(self, input_data):
-        hidden = self.convs(input_data)
-        hidden = hidden.view(input_data.size(0), -1)
-        return self.linear(hidden)
 
 if __name__ == '__main__':
-    model = WideResNet(depth=4, width=1, dropout=0.3)
+    model = DenseNet()
     if torch.cuda.is_available():
         model = model.cuda()
-
     model.x_initialize()
     model.x_train()
