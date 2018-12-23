@@ -1,5 +1,3 @@
-import math
-
 from PIL import Image
 import torch
 import torch.nn as nn
@@ -10,15 +8,15 @@ import torchvision.transforms as transforms
 from dawnet.models.perceive import BaseModel
 from dawnet.models.convs import (
     ResidualBasicUnit, ResidualBottleneckUnit,
-    ResidualBasicPreactUnit, ResidualBottleneckPreactUnit)
+    ResidualBasicPreactUnit, ResidualBottleneckPreactUnit, ResidualNextUnit)
 
 
-# ResidualBottleneckPreactUnit, additive: 50,000 => 0.6366
-# ResidualBottleneckPreactUnit, multiplicative: 50,000 => 0.6391
-# ResidualBasicPreactUnit, additive: 50,000 => 0.7103
-# ResidualBottleneckPreactUnit, additive, zero-pad: 50,000 => 0.6517
-# ResidualBottleneckPreactUnit, additive, zero-pad, neoblock: 50,000 => 0.6706
-# ResidualBasicPreactUnit, multiplicative, zero-pad, neoblock: 50,000 => 0.7413
+# ResidualBasicUnit, scale4: 50,000 -> 0.7009
+# ResidualBottleneckUnit, scale4: 50,000 -> 0.6136
+# ResidualBasicPreactUnit, scale4: 50,000 -> 0.7283
+# ResidualBottleneckPreactUnit, scale4: 50,000 -> 0.6176
+# ResidualNextUnit, scale4: 50,000 -> 0.6698
+
 
 TRANSFORM_TRAIN = transforms.Compose(
     [transforms.RandomHorizontalFlip(),
@@ -35,81 +33,42 @@ CLASSES = ('plane', 'car', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
 
-class PyramidNet(BaseModel):
-    """Implement the PyramidNet architecture as documented here:
-        https://arxiv.org/abs/1610.02915
-        https://github.com/jhkim89/PyramidNet
-
-    In PyramidNet, the number of channels gradually increases, instead of
-    maintaining the dimension then sudden jumps. The authors propose to
-    increase the number of feature maps under this scheme:
-        D_k =   16                              for k = 1
-            =   math.floor(D_k-1 + alpha / N)   for 2 <= k <= N + 1
-        in which N denotes the total number of residual units (e.g,
-            `ResidualBasicUnit`, `ResidualBottleneckUnit`...)
-
-    The above scheme is called additive scheme, another scheme is
-    multiplicative scheme:
-        D_k =   16                                  for k = 1
-            =   math.floor(D_k-1 * alpha**(1/N))    for 2 <= k <= N + 1
-
-    # Arguments
-        alpha [float]: the widening factor
-        N [int]: the number of residual blocks inside the model
-        mul [bool]: whether to use multiplicative or additive scheme
+class SENet(BaseModel):
+    """Implement the SE net, detail here:
+        https://arxiv.org/abs/1709.01507
     """
 
-    def __init__(self, alpha, depth, multiplicative, bottleneck, name=None):
-        """Initialize the network"""
-        super(PyramidNet, self).__init__(name=name)
+    def __init__(self, scale=2, name=None):
+        """Initialize the model"""
+        super(SENet, self).__init__(name=name)
         self.convs = nn.Sequential()
         self.convs.add_module(
             'conv0',
-            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1,
-                      padding=1, bias=False))
-
-        if bottleneck:
-            unit_type = ResidualBottleneckPreactUnit
-            n_units = math.floor((depth - 2) / 9)
-        else:
-            unit_type = ResidualBasicPreactUnit
-            n_units = math.floor((depth - 2) / 6)
-
-        # add the first block
-        block0, channels = self.construct_pyramid_block(
-            in_channels=16, alpha=alpha, depth=depth, stride=1,
-            n_units=n_units, unit_type=unit_type,
-            multiplicative=multiplicative, zero_pad=True,
-            skip_first_relu=True, last_bn=True)
-        self.convs.add_module('pyramidblock0', block0)
-
-        # add the second block
-        block1, channels = self.construct_pyramid_block(
-            in_channels=channels, alpha=alpha, depth=depth, stride=2,
-            n_units=n_units, unit_type=unit_type,
-            multiplicative=multiplicative, zero_pad=True,
-            skip_first_relu=True, last_bn=True)
-        self.convs.add_module('pyramidblock1', block1)
-
-        # add the third block
-        block2, channels = self.construct_pyramid_block(
-            in_channels=channels, alpha=alpha, depth=depth, stride=2,
-            n_units=10, unit_type=ResidualBottleneckPreactUnit,
-            multiplicative=multiplicative, zero_pad=True,
-            skip_first_relu=True, last_bn=True)
-        self.convs.add_module('pyramidblock2', block2)
-
-        self.convs.add_module('bn', nn.BatchNorm2d(channels))
-        self.convs.add_module('relu', nn.ReLU(inplace=True))
+            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=2,
+                      padding=0, bias=False))
+        self.convs.add_module(
+            'block0',
+            self.construct_residual_block(
+                in_channels=16, out_channels=16, stride=1, n_units=3,
+                unit_type=ResidualNextUnit, cardinality=12, se_scale=scale))
+        self.convs.add_module(
+            'block1',
+            self.construct_residual_block(
+                in_channels=16, out_channels=32, stride=2, n_units=3,
+                unit_type=ResidualNextUnit, cardinality=12, se_scale=scale))
+        self.convs.add_module(
+            'block2',
+            self.construct_residual_block(
+                in_channels=32, out_channels=64, stride=2, n_units=3,
+                unit_type=ResidualNextUnit, cardinality=12, se_scale=scale))
         self.convs.add_module('gap', nn.AdaptiveAvgPool2d((1, 1)))
-        self.linear = nn.Linear(in_features=channels, out_features=10)
+        self.linear = nn.Linear(in_features=64, out_features=10)
 
     def forward(self, input_x):
         """Perform the forward pass"""
         hidden = self.convs(input_x)
-        hidden = hidden.view(input_x.size(0), -1)
+        hidden = hidden.view(input_x.size(0), -1).contiguous()
         output = self.linear(hidden)
-
         return output
 
     def x_initialize(self):
@@ -222,8 +181,7 @@ class PyramidNet(BaseModel):
 
 
 if __name__ == '__main__':
-    model = PyramidNet(alpha=40, depth=92, multiplicative=False,
-                       bottleneck=False)
+    model = SENet(scale=4)
     if torch.cuda.is_available():
         model = model.cuda()
     model.x_initialize()
