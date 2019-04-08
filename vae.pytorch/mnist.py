@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
+from torchvision.utils import save_image
 
 
 TRANSFORM = transforms.Compose([
@@ -14,6 +15,7 @@ TRANSFORM = transforms.Compose([
 ])
 BATCH_SIZE = 128
 Z_DIM = 20
+
 
 def get_dataset():
     train_data = datasets.MNIST(
@@ -24,7 +26,7 @@ def get_dataset():
     train_loader = torch.utils.data.DataLoader(
         train_data, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = torch.utils.data.DataLoader(
-        test_data, batch_size=BATCH_SIZE)
+        test_data, batch_size=25)
 
     return train_loader, test_loader
 
@@ -106,6 +108,11 @@ def main(folder_name):
     """Perform the training"""
 
     train_loader, test_loader = get_dataset()
+    test_data = iter(test_loader).next()[0].cuda()
+    save_image(
+        test_data, os.path.join(folder_name, 'original.png'),
+        nrow=5, scale_each=True)
+    test_data = test_data.view(test_data.size(0), -1)
     model = VAE().cuda()
 
     cost_reconstruct = nn.BCELoss(reduction='sum')
@@ -132,6 +139,7 @@ def main(folder_name):
                       .format(epoch, idx, loss_reconstructed.item(),
                               loss_kl.item(), loss.item()))
 
+        # track progress with fixed z
         model.eval()
         outputs = model.decode(fixed_z)
         model.train()
@@ -154,6 +162,23 @@ def main(folder_name):
         plt.suptitle('Epoch {}'.format(epoch))
         plt.savefig(os.path.join(folder_name, '{}.png'.format(epoch)))
         plt.close()
+
+        # track progress with test datatset
+        model.eval()
+        outputs, mean, logvar = model(test_data)
+        loss_reconstructed = cost_reconstruct(x_reconstructed, x)
+        loss_kl = cost_kl(mean, logvar)
+        loss = loss_reconstructed + loss_kl
+        model.train()
+
+        outputs = outputs.view(outputs.size(0), 1, 28, 28)
+        save_image(
+            outputs,
+            os.path.join(folder_name, 'reconstruct_{}.png'.format(epoch)),
+            nrow=5, scale_each=True)
+
+        print('====> Epoch {}: kl loss {}, reconstruction loss {}, total loss {}'
+            .format(epoch, loss_kl.item(), loss_reconstructed.item(), loss.item()))
 
     images = []
     for epoch in range(epochs):
