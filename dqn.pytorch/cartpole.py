@@ -131,8 +131,6 @@ def main_simple():
 
         image = env.render('rgb_array')
         images.append(image)
-        import pdb
-        pdb.set_trace()
 
         state = torch.FloatTensor(state).unsqueeze(0)
         step = 0
