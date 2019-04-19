@@ -17,6 +17,8 @@ reward-to-go version, then in the baseline policy gradient, we have:
     \delta = E [ \delta log(pi|s_t) * RTG(s_t) ]
     -> \delta = E [ \delta log(pi|s_t) * (RGG(s_t) - V(s_t))]
     -> \delta = E [ \delta log(pi|s_t) * 0 ]   -> which is nonsense
+
+It seems easy to incorporate GAE into the policy gradient estimation.
 """
 import imageio
 import gym
@@ -28,6 +30,8 @@ from torch.utils.data import DataLoader, TensorDataset
 
 EPOCHS = 1000
 SAMPLES_PER_EPOCH = 5000
+GAMMA = 0.99
+LAMBDA = 0.97
 
 
 def get_agent():
@@ -57,13 +61,19 @@ def get_value_approximator():
 
 
 def reward_to_go(rewards):
-    """Calculate rewards to go. This reward to go will serve as Q value"""
+    """Calculate rewards to go. This reward to go will serve as Q value
+
+    This RTG function also employs lambda and gamma coefficient from the GAE
+    paper.
+
+    [r1, xr1 + r2, xxr1 + xr2 + r3, xxxr1 + xxr2 + xr3 + r4]
+    """
     new_rewards = []
     for idx, each_reward in enumerate(reversed(rewards)):
         if idx == 0:
             new_rewards.append(each_reward)
             continue
-        new_rewards.append(new_rewards[idx-1] + each_reward)
+        new_rewards.append(GAMMA * LAMBDA * new_rewards[idx - 1] + each_reward)
 
     return list(reversed(new_rewards))
 
