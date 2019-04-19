@@ -1,28 +1,18 @@
 """
-Implement vanilla policy gradient algorithm. This code is constructed with
-inspiration from OpenAI Spinning-Up RL. All credits go to them.
-
-Vanilla Policy Gradient includes the following steps:
-- Run the current policy for a fixed amount of timestep (get info for a single trajectory)
-    + In each timestep, the agent takes in a state and returns a probability
-    distribution of actions
-    + Sample an action from that action distribution and interact with the
-    environment
-    + Record the reward, save the (state, action, reward, state_next) tuples
-    + Doing this for fixed amount of timesteps and record the total reward
-- Follow the above procedure for several times (get info for several trajectories)
-- Estimate the policy gradient, given the reward for each trajectory, the action
-distribution of each timestep in each trajectory
-- Update the parameters using gradient ascent.
+Implement the vanilla policy gradient algorithm that employs reward to go
+modification as a scaler for the right hand side of the policy gradient estimation.
+The difference between reward-to-go and the one in `vpg.py` is that the each
+action probabability distribution is only multiplied by the amount of rewards
+exist after that action is taken. The overall idea should be the same in
+`vpg.py`, with only the replacement of total reward with rtg. This code is
+constructed with inspiration from OpenAI Spinning-Up RL. All credits go to them.
 """
 import imageio
 import gym
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
-
 
 EPOCHS = 1000
 SAMPLES_PER_EPOCH = 5000
@@ -41,9 +31,22 @@ def get_agent():
         nn.Softmax()
     )
 
+def reward_to_go(rewards):
+    """From a list of rewards, construct the reward with higher reward for
+    action at the start of action sequences and decrement toward the end"""
+
+    new_rewards = []
+    for idx, each_reward in enumerate(reversed(rewards)):
+        if idx == 0:
+            new_rewards.append(each_reward)
+            continue
+
+        new_rewards.append(new_rewards[idx - 1] + each_reward)
+
+    return list(reversed(new_rewards))
+
 
 if __name__ == '__main__':
-    """Run the training"""
 
     # Initialize the agent, environment and the training procedure
     env = gym.make('CartPole-v1')
@@ -82,8 +85,8 @@ if __name__ == '__main__':
             eps_reward.append(reward)
 
             if done:
-                total_reward, reward_amount = sum(eps_reward), len(eps_reward)
-                epoch_rewards += [total_reward] * reward_amount
+                total_reward = sum(eps_reward)
+                epoch_rewards += reward_to_go(eps_reward)
                 # @NOTE: in better implementation, epoch_rewards is not the
                 # the total rewards, but instead the advantage values of the
                 # corresponding action. -> we get the advantage, and we have
@@ -149,7 +152,7 @@ if __name__ == '__main__':
 
             if done:
                 imageio.mimsave(
-                    'images/vpg_{:04d}.gif'.format(epoch+1),
+                    'images/rtg_{:04d}.gif'.format(epoch+1),
                     images,
                     fps=20)
                 break
