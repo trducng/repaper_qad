@@ -114,7 +114,7 @@ class AttentionalDecoder(nn.Module):
 
         # apply attention
         attended_output = torch.matmul(
-            attention_weights.permute((1, 2, 0)),                   # B x 1 x T
+            attention_weights.permute((1, 2, 0)),           # B x 1 x T
             encoder_outputs.permute((1, 0, 2))              # B x T x hidden
         )                                                   # B x 1 x hidden
                                                         # B x (hidden + embed) 
@@ -176,30 +176,29 @@ class Seq2Seq(nn.Module):
         mini_batch = input_tensor.size(0)
 
         encoder_output = self.encoder(input_tensor)
-        last_output = input_label[:,0]
-        last_hidden = self.decoder.initialize_hidden_state(mini_batch)
+        output = input_label[:,0]
+        hidden = self.decoder.initialize_hidden_state(mini_batch)
         first_prediction = torch.zeros(mini_batch, self.output_size).float()
         first_prediction[:, 0] = 1.0
 
-        last_hidden = last_hidden.cuda()
+        hidden = hidden.cuda()
         first_prediction = first_prediction.cuda()
 
         outputs, attentions = [first_prediction], []
         for each_input in range(1, input_label.size(1)):
             output, hidden, attention_weights = self.decoder(
-                last_output, last_hidden, encoder_output)
+                output, hidden, encoder_output)
 
             outputs.append(output)
-            if random.random() < teacher_prob:
-                last_output = input_label[:, each_input]
-            else:
-                last_output = torch.argmax(output, dim=1)
-
-            hidden = last_hidden
             attentions.append(attention_weights)
+
+            if random.random() < teacher_prob:
+                output = input_label[:, each_input]
+            else:
+                output = torch.argmax(output, dim=1)
         
         outputs = torch.stack(outputs, dim=0)                   # T x B x C
-        outputs = outputs.permute((1, 2, 0))                  # B x C x T
+        outputs = outputs.permute((1, 2, 0))                    # B x C x T
 
         return outputs, attentions
 

@@ -47,7 +47,7 @@ def main(gpu=True, output_folder='logs'):
 
     # set up optimization objects
     criterion = nn.CrossEntropyLoss(ignore_index=train_set.pad_idx)
-    optimizer = optim.Adam(params=model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(params=model.parameters(), lr=1e-4)
     scheduler = optim.lr_scheduler.StepLR(
         optimizer=optimizer, step_size=1, gamma=0.1, last_epoch=-1)
 
@@ -79,7 +79,7 @@ def main(gpu=True, output_folder='logs'):
             optimizer.step()
 
             predictions = train_set.decode(outputs)
-            corrects = [
+            corrects = [                            # accuracy by field
                 each_pred == each_label
                 for each_pred, each_label in zip(predictions, label_str)
             ]
