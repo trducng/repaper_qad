@@ -1,0 +1,5 @@
+matplotlib
+numpy
+seaborn
+torch
+git+https://github.com/johntd54/datasource#egg=datasource
