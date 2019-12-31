@@ -114,6 +114,11 @@ def tsne(X, n_dims=2, perplexity=20.0, label=None):
     """
     X = pca(X, 50)
 
+    P = similarity(X, perplexity)
+    P = P + P.t()
+    P = P / P.sum(1).unsqueeze(-1)
+    P = torch.max(P, torch.ones(P.shape) * 1e-8)
+
     y = torch.randn(X.shape[0], n_dims)
     y.requires_grad_()
 
@@ -122,39 +127,28 @@ def tsne(X, n_dims=2, perplexity=20.0, label=None):
         figs[0].savefig('images/before.png')
 
     criterion = nn.KLDivLoss(reduction='sum')
-    optimizer = optim.SGD([y], lr=25, momentum=0.5)
+    optimizer = optim.SGD([y], lr=30, momentum=0.5)
 
-    batch_size = 100
     random_idx = np.random.permutation(X.shape[0])
-    for _idx in range(200):
-        print(f'Working on epoch {_idx}')
-        for batch_start in range(0, X.shape[0], batch_size):
-            optimizer.zero_grad()
+    for _idx in range(1000):
+        optimizer.zero_grad()
 
-            batch_X = X[batch_start:batch_start + batch_size]
-            batch_y = y[batch_start:batch_start + batch_size]
+        # calculate low-dim piecewise similarity
+        sum_y = (y ** 2).sum(1).unsqueeze(-1)
+        num = -2. * torch.mm(y, y.t())
+        num = 1. / (1. + ((num + sum_y).t() + sum_y))
+        num[range(num.shape[0]), range(num.shape[1])] = 0.
+        Q = num / num.sum(1).unsqueeze(-1)
+        Q = torch.max(Q, torch.ones(Q.shape) * 1e-12)
+        Q = torch.log(Q)
 
-            P = similarity(batch_X, perplexity)
-            P = P + P.t()
-            P = P / P.sum(1).unsqueeze(-1)
-            P = torch.max(P, torch.ones(P.shape) * 1e-8)
+        loss = criterion(Q, P)
+        loss.backward()
+        optimizer.step()
 
-            # calculate low-dim piecewise similarity
-            sum_y = (batch_y ** 2).sum(1).unsqueeze(-1)
-            num = -2. * torch.mm(batch_y, batch_y.t())
-            num = 1. / (1. + ((num + sum_y).t() + sum_y))
-            num[range(num.shape[0]), range(num.shape[1])] = 0.
-            Q = num / num.sum(1).unsqueeze(-1)
-            Q = torch.max(Q, torch.ones(Q.shape) * 1e-12)
-            Q = torch.log(Q)
-
-            loss = criterion(Q, P)
-            loss.backward()
-            optimizer.step()
-
-            if batch_start % 1000 == 0:
-                print(f'[{batch_start}|{X.shape[0]}] {loss.item()},',
-                      f'{y.grad.mean().item()}, {y.sum().item()}')
+        if _idx % 100 == 0:
+            print(f'[{_idx}|1000] {loss.item()},',
+                  f'{y.grad.mean().item()}, {y.sum().item()}')
 
     if label is not None:
         figs = scatter(y.cpu().data.numpy(), label)
@@ -171,9 +165,12 @@ if __name__ == "__main__":
     X_train = X_train.reshape(X_train.shape[0], -1)
     X_train = torch.FloatTensor(X_train)
 
-    n_data = 100
+    n_data = 200
     X_train, y_train = X_train[:n_data], y_train[:n_data]
+
+    similar = pca(X_train)
+    temp = scatter(similar.cpu().data.numpy(), y_train)
+    temp[0].savefig('images/pca.png')
 
     similar = tsne(X_train, 2, 5.0, y_train)
     temp = scatter(similar.cpu().data.numpy(), y_train)
-    temp[0].savefig('images/after.png')
