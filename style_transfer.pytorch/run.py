@@ -62,8 +62,8 @@ def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu
     )
 
     model_loss = VGGFeatures(pretrained=True, requires_grad=False)
-    transform_network = UNet(pretrained=False)
-    # transform_network = TransformerNet()
+    # transform_network = UNet(pretrained=False)
+    transform_network = TransformerNet()
     if ckpt:
         transform_network.load_state_dict(ckpt['model'])
 
@@ -108,6 +108,7 @@ def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu
                 x = x.cuda()
             yhat = transform_network(x)
             # yhat = (yhat - yhat.min()) / (yhat.max() - yhat.min())      # normalize to range 0 - 1
+            yhat = torch.sigmoid(yhat)
             yhat_transform = normalize_imagenet_image(yhat, mean, std)
             x_transform = normalize_imagenet_image(x, mean, std)
 
@@ -120,7 +121,7 @@ def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu
             for each_yhat, each_ys in zip(gram_yhat, gram_ys):
                 style_loss += style_criterion(each_yhat, each_ys)
 
-            loss = 1e5 * content_loss + 1e10 * style_loss
+            loss = 1e9 * content_loss + 1e15 * style_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
