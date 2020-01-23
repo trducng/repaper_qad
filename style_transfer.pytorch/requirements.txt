@@ -1,5 +1,7 @@
 black==19.10b0
+gpustat==0.6.0
 fire==0.2.1
+ipython==7.11.1
 matplotlib==3.1.2
 numpy==1.18.0
 opencv-python==4.1.2.30

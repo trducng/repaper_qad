@@ -36,7 +36,7 @@ def normalize_imagenet_image(image, mean, std):
     return (image - mean) / std
 
 
-def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu, seed, load_path):
+def train(model_type, style_image_path, image_folder, output_folder, filename, n_epochs, gpu, seed, load_path):
     """Perform the training phase"""
     ckpt = None
     if isinstance(load_path, str):
@@ -62,8 +62,10 @@ def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu
     )
 
     model_loss = VGGFeatures(pretrained=True, requires_grad=False)
-    transform_network = UNet(pretrained=False)
-    # transform_network = TransformerNet()
+    if model_type == 'unet':
+        transform_network = UNet(pretrained=False)
+    elif model_type == 'transformer':
+        transform_network = TransformerNet()
     if ckpt:
         transform_network.load_state_dict(ckpt['model'])
 
@@ -107,8 +109,9 @@ def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu
             if gpu:
                 x = x.cuda()
             yhat = transform_network(x)
-            # yhat = (yhat - yhat.min()) / (yhat.max() - yhat.min())      # normalize to range 0 - 1
-            # yhat = torch.sigmoid(yhat)
+            if model_type == 'transformer':
+                # yhat = (yhat - yhat.min()) / (yhat.max() - yhat.min())      # normalize to range 0 - 1
+                yhat = torch.sigmoid(yhat)
             yhat_transform = normalize_imagenet_image(yhat, mean, std)
             x_transform = normalize_imagenet_image(x, mean, std)
 
@@ -121,7 +124,7 @@ def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu
             for each_yhat, each_ys in zip(gram_yhat, gram_ys):
                 style_loss += style_criterion(each_yhat, each_ys)
 
-            loss = 1e10 * content_loss + 1e12 * style_loss
+            loss = 1e5 * content_loss + 1e10 * style_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -162,6 +165,7 @@ def train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu
 class CLI:
     def train(
         self,
+        model_type,
         style_image_path,
         image_folder="datasets/coco",
         output_folder="logs",
@@ -171,7 +175,8 @@ class CLI:
         seed=None,
         load_path=None,
     ):
-        train(style_image_path, image_folder, output_folder, filename, n_epochs, gpu, seed, load_path)
+        train(model_type, style_image_path, image_folder, output_folder, filename,
+              n_epochs, gpu, seed, load_path)
 
 
 if __name__ == "__main__":
