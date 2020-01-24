@@ -6,14 +6,13 @@ import numpy as np
 import torch
 
 from models import UNet
-from transformer_net import TransformerNet
 
 
 def main(model_type, model_path, input_image_path, output_image_path, gpu=True):
     """Perform stylizing of `input_image_path`
 
     # Arguments
-        model_type [str]: either 'transformer' or 'unet'
+        model_type [str]: 'unet'
         model_path [str]: the path to trained weight
         input_image_path [str]: the path to image to stylize
         output_image_path [str]: the path to saved output image
@@ -26,8 +25,8 @@ def main(model_type, model_path, input_image_path, output_image_path, gpu=True):
 
     if model_type == "unet":
         model = UNet()
-    elif model_type == "transformer":
-        model = TransformerNet()
+    else:
+        raise AttributeError('unknown model_type, should be unet')
 
     model.load_state_dict(chpt["model"])
     model.eval()
@@ -46,14 +45,6 @@ def main(model_type, model_path, input_image_path, output_image_path, gpu=True):
         output_image = (
             pred.cpu().squeeze().permute(1, 2, 0).data.numpy() * 255
         ).astype(np.uint8)
-    elif model_type == "transformer":
-        # NOTE: pred might not in range 0-1
-        pred = torch.sigmoid(pred)
-        output_image = pred.cpu().squeeze().permute(1, 2, 0).data.numpy()
-        # output_image = (output_image - output_image.min()) / (
-        #     output_image.max() - output_image.min()
-        # )
-        output_image = (output_image * 255).astype(np.uint8)
 
     cv2.imwrite(output_image_path, cv2.cvtColor(output_image, cv2.COLOR_RGB2BGR))
 

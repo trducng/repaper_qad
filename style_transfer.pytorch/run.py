@@ -13,7 +13,6 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 from models import VGGFeatures, UNet
-from transformer_net import TransformerNet
 
 
 def gram_matrix(features):
@@ -64,8 +63,6 @@ def train(model_type, style_image_path, image_folder, output_folder, filename, n
     model_loss = VGGFeatures(pretrained=True, requires_grad=False)
     if model_type == 'unet':
         transform_network = UNet(pretrained=False)
-    elif model_type == 'transformer':
-        transform_network = TransformerNet()
     if ckpt:
         transform_network.load_state_dict(ckpt['model'])
 
@@ -109,9 +106,6 @@ def train(model_type, style_image_path, image_folder, output_folder, filename, n
             if gpu:
                 x = x.cuda()
             yhat = transform_network(x)
-            if model_type == 'transformer':
-                # yhat = (yhat - yhat.min()) / (yhat.max() - yhat.min())      # normalize to range 0 - 1
-                yhat = torch.sigmoid(yhat)
             yhat_transform = normalize_imagenet_image(yhat, mean, std)
             x_transform = normalize_imagenet_image(x, mean, std)
 

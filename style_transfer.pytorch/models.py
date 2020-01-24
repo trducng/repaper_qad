@@ -94,9 +94,9 @@ class ResBlock(nn.Module):
                 kernel_size=3,
                 stride=1,
                 padding=1,
-                bias=False,
+                bias=True,
             ),
-            nn.BatchNorm2d(out_channels),
+            nn.InstanceNorm2d(out_channels),
             nn.ReLU(),
             nn.Conv2d(
                 out_channels,
@@ -104,9 +104,9 @@ class ResBlock(nn.Module):
                 kernel_size=3,
                 stride=1,
                 padding=1,
-                bias=False,
+                bias=True,
             ),
-            nn.BatchNorm2d(out_channels),
+            nn.InstanceNorm2d(out_channels),
         )
 
         self.identity = nn.Conv2d(in_channels, out_channels, kernel_size=1)
@@ -131,8 +131,8 @@ class UNet(nn.Module):
 
         # decoder
         self.upconv1 = ResBlock(in_channels=256, out_channels=64)
-        self.upconv2 = ResBlock(in_channels=128 + 64, out_channels=32)
-        self.upconv3 = ResBlock(in_channels=64 + 32, out_channels=16)
+        self.upconv2 = ResBlock(in_channels=64, out_channels=32)
+        self.upconv3 = ResBlock(in_channels=32, out_channels=16)
 
         self.classifier = nn.Sequential(
             nn.Conv2d(16, 16, kernel_size=3, padding=1),
@@ -152,13 +152,11 @@ class UNet(nn.Module):
         h = F.interpolate(
             h, size=base[1].size()[2:], mode="bilinear", align_corners=False
         )
-        h = torch.cat([h, base[1]], dim=1)
         h = self.upconv2(h)
 
         h = F.interpolate(
             h, size=base[0].size()[2:], mode="bilinear", align_corners=False
         )
-        h = torch.cat([h, base[0]], dim=1)
         h = self.upconv3(h)
 
         out = self.classifier(h)
