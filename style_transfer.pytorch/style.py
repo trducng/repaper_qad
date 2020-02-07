@@ -66,8 +66,8 @@ def gram_matrix(features):
 
 if __name__ == "__main__":
 
-    content_weight = 1e5
-    style_weight = 1e10
+    content_weight = 1e3
+    style_weight = 1e8
 
     # get encoder
     encoder = VGG16()
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     # get content & style images
     content_image = cv2.cvtColor(cv2.imread('datasets/content.jpg'), cv2.COLOR_BGR2RGB)
     content_image = prepare_image(content_image)
-    style_image = cv2.cvtColor(cv2.imread('datasets/style.jpg'), cv2.COLOR_BGR2RGB)
+    style_image = cv2.cvtColor(cv2.imread('datasets/style_picasso.jpg'), cv2.COLOR_BGR2RGB)
     style_image = prepare_image(style_image)
 
     # random image to optimize
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         for style1, style2 in zip(grams, style_grams):
             style_loss += criterion(style1, style2)
 
-        content_loss = criterion(output[3], content_output[3])
+        content_loss = criterion(output[2], content_output[2])
         loss = content_weight * content_loss + style_weight * style_loss
 
         optimizer.zero_grad()
