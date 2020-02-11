@@ -1,4 +1,7 @@
 """Reimplement CapsuleNetwork, based on *Dynamic Routing Between Capsules*"""
+from pathlib import Path
+
+import fire
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -281,11 +284,9 @@ class MarginLoss(nn.Module):
         return loss
 
 
-if __name__ == "__main__":
-    cuda = True
-    epoch = 50
+def train(n_epochs=50, log_dir='logs', cuda=True):
     train_loader = torch.utils.data.DataLoader(
-        torchvision.datasets.FashionMNIST(
+        torchvision.datasets.KMNIST(
             "datasets", download=True, transform=torchvision.transforms.ToTensor()
         ),
         batch_size=128,
@@ -293,7 +294,7 @@ if __name__ == "__main__":
     )
 
     test_loader = torch.utils.data.DataLoader(
-        torchvision.datasets.FashionMNIST(
+        torchvision.datasets.KMNIST(
             "datasets",
             train=False,
             download=True,
@@ -313,8 +314,8 @@ if __name__ == "__main__":
     mse_criterion = nn.MSELoss()
     optimizer = optim.Adam(list(model.parameters()) + list(decoder.parameters()))
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', patience=2, verbose=True)
-    for each_epoch in range(epoch):
+        optimizer, mode='max', patience=5, verbose=True)
+    for each_epoch in range(n_epochs):
         count, total_loss = 0, 0
         for idx, (x, y) in enumerate(train_loader):
             if cuda:
@@ -335,7 +336,7 @@ if __name__ == "__main__":
                 print(f"IDX {each_epoch} - {idx}: {total_loss / count}, {margin_loss.item()}, {recons_loss.item()}")
                 images = torch.cat([x[:5], recons[:5]], dim=0)
                 torchvision.utils.save_image(
-                    images, f'logs/output_{each_epoch}_{idx}.png', nrow=5)
+                    images, Path(log_dir, f'output_{each_epoch}_{idx}.png'), nrow=5)
 
         # perform the test
         corrects = 0
@@ -354,7 +355,7 @@ if __name__ == "__main__":
                 recons = decoder(output, preds)
                 images = torch.cat([x[:10], recons[:10]], dim=0)
                 torchvision.utils.save_image(
-                    images, f'logs/test_{each_epoch}_{idx}.png', nrow=10)
+                    images, Path(log_dir, f'test_{each_epoch}_{idx}.png'), nrow=10)
 
         print(f"Test accuracy: {corrects/len(test_loader.dataset)}")
         lr_scheduler.step(corrects / len(test_loader.dataset))
@@ -363,4 +364,7 @@ if __name__ == "__main__":
             'decoder': decoder.state_dict(),
             'optimizer': optimizer.state_dict(),
             'epoch': each_epoch
-        }, f'logs/capsnet_{each_epoch}.pth')
+        }, Path(log_dir, f'capsnet_{each_epoch}.pth'))
+
+if __name__ == "__main__":
+    fire.Fire(train)
