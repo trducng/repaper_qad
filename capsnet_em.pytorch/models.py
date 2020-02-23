@@ -330,5 +330,7 @@ def train(n_epochs=50, log_dir='logs', cuda=True):
 
 if __name__ == "__main__":
     # fire.Fire(train)
-    download(dataset_name, folder_name, tags='train')
+    folder_name = 'datasets'
+    download('smallNORB', folder_name, tags='train')
     x, y = smallnorb_loader(folder_name, train=True)
+    print(x.shape, y.shape)
