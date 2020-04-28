@@ -1,0 +1,6 @@
+datasource
+ipython
+jax
+jaxlib
+matplotlib
+numpy
