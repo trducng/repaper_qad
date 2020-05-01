@@ -32,7 +32,6 @@ from utils import PRNG_KEY, PRNG_SUBKEY, express, get_nodes, mean_squared_distan
 xor_inputs = [(0, 0), (0, 1), (1, 0), (1, 1)]
 xor_outputs = [0, 1, 1, 0]
 
-
 class Individual():
     """An individual living in the population and in the species
 
@@ -95,10 +94,14 @@ class Species():
         diff = []
         for each_individual in self.individuals:
             preds = [
-                list(evaluate([x1, x2], each_individual.nodes, each_individual.connections)[0].values())[0]
+                list(evaluate([x1, x2], each_individual.nodes, each_individual.connections).values())[0]
                 for x1, x2 in xor_inputs
             ]
             diff.append(mean_squared_distance(preds, xor_outputs))
+            _preds = [1 if x > 0.5 else 0 for x in preds]
+            print(_preds, xor_outputs)
+            if not mean_squared_distance(_preds, xor_outputs):
+                print('AAaaaaaa win')
         return diff
 
 
@@ -122,10 +125,10 @@ def main(init_size, input_size, output_size):
     for _ in range(init_size):
         population.append(Individual(innov, input_size, output_size))
 
-    species = assign_species(population, [], innov, [0.5, 0.4, 0.1], 0.7)
+    species = assign_species(population, [], innov, [0.7, 0.2, 0.1], 0.7)
     species = [Species(value) for value in species.values()]
 
-    for epoch in range(10):
+    for epoch in range(50):
 
         # evaluate
         population = []
@@ -155,6 +158,7 @@ def main(init_size, input_size, output_size):
 
             new_pool = []
             new_pool += keep
+
             # randomly crossover
             for _ in range(n_crossover):
                 base_idx_1 = random.randint(PRNG_KEY, (1,), 0, len(keep)).item()
@@ -191,7 +195,7 @@ def main(init_size, input_size, output_size):
             population,
             [each.role_model for each in species],
             innov,
-            [0.5, 0.4, 0.1],
+            [0.7, 0.2, 0.1],
             0.7)
         new_species = []
         for key, value in species_tobe.items():
@@ -207,7 +211,6 @@ def main(init_size, input_size, output_size):
     for idx_species, each_species in enumerate(species):
         for idx_ind, each_ind in enumerate(each_species.individuals):
             draw_network(each_ind.nodes, each_ind.connections, f'logs/{idx_species}_{idx_ind}.png')
-    import pdb; pdb.set_trace()
 
 
 

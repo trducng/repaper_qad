@@ -57,11 +57,11 @@ def evaluate(inputs, nodes, connections):
     phenotype = express(connections, backward=True)
     output_nodes = [node for node in nodes if node["node_type"] == "output"]
     cache = {}
-    result = []
+    result = {}
     for each_node in output_nodes:
         value = sigmoid(
             get_node_value(each_node["node_id"], phenotype, cache, inputs))
-        result.append({each_node["node_id"]: value})
+        result[each_node["node_id"]] = value
     return result
 
 
