@@ -42,7 +42,7 @@ def draw_network(nodes, connections, output_path):
         graph.add_edge(
             each_connection["from"],
             each_connection["to"],
-            weight=each_connection["weight"],
+            # weight=each_connection["weight"],
             # innov=each_connection["innov"],
         )
 

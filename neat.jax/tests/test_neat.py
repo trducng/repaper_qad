@@ -110,6 +110,9 @@ class TestSpeciation(unittest.TestCase):
         self.assertEqual(excess, 2)
         self.assertAlmostEqual(diff, 0.1 / 11)
 
+    def test_crossover(self):
+
+
 class TestXOR(unittest.TestCase):
 
     def test_evaluate_xor_zeros(self):
