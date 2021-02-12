@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from timm.models.registry import register_model
 from torch import nn
 
 MIN_NUM_PATCHES = 16
@@ -131,6 +132,12 @@ class ViT(nn.Module):
         x = self.to_latent(x)
         return self.mlp_head(x)
 
+
+@register_model
+def vit_vanilla(**kwargs):
+    model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
+                heads=12, mlp_dim=3072)
+    return model
 
 if __name__ == '__main__':
     vit = ViT(image_size=224, patch_size=28, num_classes=1000, dim=128, depth=3,
