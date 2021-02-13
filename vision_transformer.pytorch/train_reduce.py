@@ -44,8 +44,6 @@ parser.add_argument('-c', '--config', default='', type=str, metavar='FILE',
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 # Dataset / Model parameters
-parser.add_argument('data_dir', metavar='DIR',
-                    help='path to dataset')
 parser.add_argument('--dataset', '-d', metavar='NAME', default='',
                     help='dataset type (default: ImageFolder/ImageTar if empty)')
 parser.add_argument('--train-split', metavar='NAME', default='train',
@@ -258,9 +256,6 @@ def main():
     setup_default_logging()
     args, args_text = _parse_args()
 
-    args.world_size = 1
-    args.rank = 0  # global rank
-
     # resolve AMP arguments based on PyTorch / Apex availability
     use_amp = None
     if args.amp:
@@ -268,10 +263,6 @@ def main():
 
     model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
                 heads=12, mlp_dim=3072)
-
-    if args.local_rank == 0:
-        _logger.info('Model %s created, param count: %d' %
-                     (args.model, sum([m.numel() for m in model.parameters()])))
 
     # move model to GPU, enable channels last layout if set
     model.cuda()
@@ -283,11 +274,9 @@ def main():
     if use_amp == 'native':
         amp_autocast = torch.cuda.amp.autocast
         loss_scaler = NativeScaler()
-        if args.local_rank == 0:
-            _logger.info('Using native Torch AMP. Training in mixed precision.')
+        _logger.info('Using native Torch AMP. Training in mixed precision.')
     else:
-        if args.local_rank == 0:
-            _logger.info('AMP not enabled. Training in float32.')
+        _logger.info('AMP not enabled. Training in float32.')
 
     # vanilla dataloader here
     from torchvision import datasets
@@ -306,28 +295,20 @@ def main():
     for epoch in range(0, 200):
 
         train_metrics = train_one_epoch(
-            epoch, model, loader_train, optimizer, train_loss_fn, args,
+            epoch, model, loader_train, optimizer, train_loss_fn,
             amp_autocast=amp_autocast, loss_scaler=loss_scaler)
 
 
 def train_one_epoch(
-        epoch, model, loader, optimizer, loss_fn, args,
+        epoch, model, loader, optimizer, loss_fn,
         amp_autocast=suppress,
         loss_scaler=None):
 
-    second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
-    batch_time_m = AverageMeter()
-    data_time_m = AverageMeter()
     losses_m = AverageMeter()
 
     model.train()
 
-    end = time.time()
-    last_idx = len(loader) - 1
-    num_updates = epoch * len(loader)
     for batch_idx, (input, target) in enumerate(loader):
-        last_batch = batch_idx == last_idx
-        data_time_m.update(time.time() - end)
         input, target = input.cuda(), target.cuda()
 
         with amp_autocast():
@@ -339,40 +320,18 @@ def train_one_epoch(
         optimizer.zero_grad()
         if loss_scaler is not None:
             loss_scaler(
-                loss, optimizer, clip_grad=args.clip_grad, parameters=model.parameters(), create_graph=second_order)
+                loss, optimizer, clip_grad=False, parameters=model.parameters())
         else:
-            loss.backward(create_graph=second_order)
-            if args.clip_grad is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+            loss.backward()
             optimizer.step()
 
-        torch.cuda.synchronize()
-        num_updates += 1
-        batch_time_m.update(time.time() - end)
-        if last_batch or batch_idx % args.log_interval == 0:
-            lrl = [param_group['lr'] for param_group in optimizer.param_groups]
-            lr = sum(lrl) / len(lrl)
-
-            if args.local_rank == 0:
-                _logger.info(
-                    'Train: {} [{:>4d}/{} ({:>3.0f}%)]  '
-                    'Loss: {loss.val:>9.6f} ({loss.avg:>6.4f})  '
-                    'Time: {batch_time.val:.3f}s, {rate:>7.2f}/s  '
-                    '({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
-                    'LR: {lr:.3e}  '
-                    'Data: {data_time.val:.3f} ({data_time.avg:.3f})'.format(
-                        epoch,
-                        batch_idx, len(loader),
-                        100. * batch_idx / last_idx,
-                        loss=losses_m,
-                        batch_time=batch_time_m,
-                        rate=input.size(0) * args.world_size / batch_time_m.val,
-                        rate_avg=input.size(0) * args.world_size / batch_time_m.avg,
-                        lr=lr,
-                        data_time=data_time_m))
-
-        end = time.time()
-        # end for
+        if batch_idx % 50 == 0:
+            _logger.info(
+                'Train: {} [{:>4d}/{}]  '
+                'Loss: {loss.val:>9.6f} ({loss.avg:>6.4f})  '.format(
+                    epoch,
+                    batch_idx, len(loader),
+                    loss=losses_m)
 
     return OrderedDict([('loss', losses_m.avg)])
 
