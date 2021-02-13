@@ -21,33 +21,13 @@ import os
 import logging
 from collections import OrderedDict
 from contextlib import suppress
-from datetime import datetime
 
 import torch
 import torch.nn as nn
-import torchvision.utils
 
-from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
-from timm.models import create_model, resume_checkpoint, load_checkpoint, convert_splitbn_model
 from timm.utils import *
-from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy, JsdCrossEntropy
 from timm.optim import create_optimizer
-from timm.scheduler import create_scheduler
-from timm.utils import ApexScaler, NativeScaler
-
-try:
-    from apex import amp
-    from apex.parallel import convert_syncbn_model
-    has_apex = True
-except ImportError:
-    has_apex = False
-
-has_native_amp = False
-try:
-    if getattr(torch.cuda.amp, 'autocast') is not None:
-        has_native_amp = True
-except AttributeError:
-    pass
+from timm.utils import NativeScaler
 
 from model import ViT
 
@@ -236,8 +216,6 @@ parser.add_argument('--save-images', action='store_true', default=False,
                     help='save images of input bathes every log interval for debugging')
 parser.add_argument('--amp', action='store_true', default=False,
                     help='use NVIDIA Apex AMP or Native AMP for mixed precision training')
-parser.add_argument('--apex-amp', action='store_true', default=False,
-                    help='Use NVIDIA Apex AMP mixed precision')
 parser.add_argument('--native-amp', action='store_true', default=False,
                     help='Use Native Torch AMP mixed precision')
 parser.add_argument('--channels-last', action='store_true', default=False,
@@ -286,18 +264,7 @@ def main():
     # resolve AMP arguments based on PyTorch / Apex availability
     use_amp = None
     if args.amp:
-        # `--amp` chooses native amp before apex (APEX ver not actively maintained)
-        if has_native_amp:
-            args.native_amp = True
-        elif has_apex:
-            args.apex_amp = True
-    if args.apex_amp and has_apex:
-        use_amp = 'apex'
-    elif args.native_amp and has_native_amp:
         use_amp = 'native'
-    elif args.apex_amp or args.native_amp:
-        _logger.warning("Neither APEX or native Torch AMP is available, using float32. "
-                        "Install NVIDA apex or upgrade to PyTorch 1.6")
 
     model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
                 heads=12, mlp_dim=3072)
@@ -306,22 +273,14 @@ def main():
         _logger.info('Model %s created, param count: %d' %
                      (args.model, sum([m.numel() for m in model.parameters()])))
 
-    data_config = resolve_data_config(vars(args), model=model, verbose=args.local_rank == 0)
-
     # move model to GPU, enable channels last layout if set
     model.cuda()
-
     optimizer = create_optimizer(args, model)
 
     # setup automatic mixed-precision (AMP) loss scaling and op casting
     amp_autocast = suppress  # do nothing
     loss_scaler = None
-    if use_amp == 'apex':
-        model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
-        loss_scaler = ApexScaler()
-        if args.local_rank == 0:
-            _logger.info('Using NVIDIA APEX AMP. Training in mixed precision.')
-    elif use_amp == 'native':
+    if use_amp == 'native':
         amp_autocast = torch.cuda.amp.autocast
         loss_scaler = NativeScaler()
         if args.local_rank == 0:
@@ -344,53 +303,16 @@ def main():
     # setup loss function
     train_loss_fn = nn.CrossEntropyLoss().cuda()
 
-    # setup checkpoint saver and eval metric tracking
-    eval_metric = args.eval_metric
-    best_metric = None
-    best_epoch = None
-    saver = None
-    output_dir = ''
-    if args.local_rank == 0:
-        output_base = args.output if args.output else './output'
-        exp_name = '-'.join([
-            datetime.now().strftime("%Y%m%d-%H%M%S"),
-            args.model,
-            str(data_config['input_size'][-1])
-        ])
-        output_dir = get_outdir(output_base, 'train', exp_name)
-        decreasing = True if eval_metric == 'loss' else False
-        saver = CheckpointSaver(
-            model=model, optimizer=optimizer, args=args, amp_scaler=loss_scaler,
-            checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing, max_history=args.checkpoint_hist)
-        with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
-            f.write(args_text)
+    for epoch in range(0, 200):
 
-    try:
-        for epoch in range(0, 200):
-
-            train_metrics = train_one_epoch(
-                epoch, model, loader_train, optimizer, train_loss_fn, args,
-                saver=saver, output_dir=output_dir,
-                amp_autocast=amp_autocast, loss_scaler=loss_scaler)
-
-            update_summary(
-                epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
-                write_header=best_metric is None)
-
-            if saver is not None:
-                # save proper checkpoint with eval metric
-                save_metric = eval_metrics[eval_metric]
-                best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
-
-    except KeyboardInterrupt:
-        pass
-    if best_metric is not None:
-        _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
+        train_metrics = train_one_epoch(
+            epoch, model, loader_train, optimizer, train_loss_fn, args,
+            amp_autocast=amp_autocast, loss_scaler=loss_scaler)
 
 
 def train_one_epoch(
         epoch, model, loader, optimizer, loss_fn, args,
-        saver=None, output_dir='', amp_autocast=suppress,
+        amp_autocast=suppress,
         loss_scaler=None):
 
     second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
@@ -449,22 +371,8 @@ def train_one_epoch(
                         lr=lr,
                         data_time=data_time_m))
 
-                if args.save_images and output_dir:
-                    torchvision.utils.save_image(
-                        input,
-                        os.path.join(output_dir, 'train-batch-%d.jpg' % batch_idx),
-                        padding=0,
-                        normalize=True)
-
-        if saver is not None and args.recovery_interval and (
-                last_batch or (batch_idx + 1) % args.recovery_interval == 0):
-            saver.save_recovery(epoch, batch_idx=batch_idx)
-
         end = time.time()
         # end for
-
-    if hasattr(optimizer, 'sync_lookahead'):
-        optimizer.sync_lookahead()
 
     return OrderedDict([('loss', losses_m.avg)])
 
