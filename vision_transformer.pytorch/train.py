@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 import torch
 import torch.nn as nn
@@ -24,8 +24,8 @@ def main():
     model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
                 heads=12, mlp_dim=3072)
     model = model.cuda()
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.003, weight_decay=0.3)
+    criterion = nn.CrossEntropyLoss().cuda()
+    optimizer = optim.Adam(model.parameters(), lr=0.003)
     # scheduler = optim.lr_scheduler.CosineAnnealingLR(
     #     optimizer, T_max=5, eta_min=0.003)
 

@@ -51,7 +51,7 @@ try:
 except AttributeError:
     pass
 
-from model import *
+from model import ViT
 
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
@@ -297,17 +297,6 @@ def main():
     args.device = 'cuda:0'
     args.world_size = 1
     args.rank = 0  # global rank
-    if args.distributed:
-        args.device = 'cuda:%d' % args.local_rank
-        torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group(backend='nccl', init_method='env://')
-        args.world_size = torch.distributed.get_world_size()
-        args.rank = torch.distributed.get_rank()
-        _logger.info('Training in distributed mode with multiple processes, 1 GPU per process. Process %d, total %d.'
-                     % (args.rank, args.world_size))
-    else:
-        _logger.info('Training with a single process on 1 GPUs.')
-    assert args.rank >= 0
 
     # resolve AMP arguments based on PyTorch / Apex availability
     use_amp = None
@@ -324,8 +313,6 @@ def main():
     elif args.apex_amp or args.native_amp:
         _logger.warning("Neither APEX or native Torch AMP is available, using float32. "
                         "Install NVIDA apex or upgrade to PyTorch 1.6")
-
-    torch.manual_seed(args.seed + args.rank)
 
     model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
                 heads=12, mlp_dim=3072)
@@ -367,11 +354,6 @@ def main():
             _logger.info(
                 'Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using '
                 'zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled.')
-
-    if args.torchscript:
-        assert not use_amp == 'apex', 'Cannot use APEX AMP with torchscripted model'
-        assert not args.sync_bn, 'Cannot use SyncBatchNorm with torchscripted model'
-        model = torch.jit.script(model)
 
     optimizer = create_optimizer(args, model)
 
@@ -424,39 +406,17 @@ def main():
         # NOTE: EMA model does not need to be wrapped by DDP
 
     # setup learning rate schedule and starting epoch
-    lr_scheduler, num_epochs = create_scheduler(args, optimizer)
     start_epoch = 0
     if args.start_epoch is not None:
         # a specified start_epoch will always override the resume epoch
         start_epoch = args.start_epoch
     elif resume_epoch is not None:
         start_epoch = resume_epoch
-    if lr_scheduler is not None and start_epoch > 0:
-        lr_scheduler.step(start_epoch)
-
-    if args.local_rank == 0:
-        _logger.info('Scheduled epochs: {}'.format(num_epochs))
 
     # create the train and eval datasets
-    dataset_train = create_dataset(
-        args.dataset, root=args.data_dir, split=args.train_split, is_training=True, batch_size=args.batch_size)
     dataset_eval = create_dataset(
         args.dataset, root=args.data_dir, split=args.val_split, is_training=False, batch_size=args.batch_size)
 
-    # setup mixup / cutmix
-    collate_fn = None
-    mixup_fn = None
-    mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
-    if mixup_active:
-        mixup_args = dict(
-            mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
-            prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
-            label_smoothing=args.smoothing, num_classes=args.num_classes)
-        if args.prefetcher:
-            assert not num_aug_splits  # collate conflict (need to support deinterleaving in collate mixup)
-            collate_fn = FastCollateMixup(**mixup_args)
-        else:
-            mixup_fn = Mixup(**mixup_args)
 
     # wrap dataset in AugMix helper
     if num_aug_splits > 1:
@@ -466,33 +426,7 @@ def main():
     train_interpolation = args.train_interpolation
     if args.no_aug or not train_interpolation:
         train_interpolation = data_config['interpolation']
-    # loader_train = create_loader(
-    #     dataset_train,
-    #     input_size=data_config['input_size'],
-    #     batch_size=args.batch_size,
-    #     is_training=True,
-    #     use_prefetcher=args.prefetcher,
-    #     no_aug=args.no_aug,
-    #     re_prob=args.reprob,
-    #     re_mode=args.remode,
-    #     re_count=args.recount,
-    #     re_split=args.resplit,
-    #     scale=args.scale,
-    #     ratio=args.ratio,
-    #     hflip=args.hflip,
-    #     vflip=args.vflip,
-    #     color_jitter=args.color_jitter,
-    #     auto_augment=args.aa,
-    #     num_aug_splits=num_aug_splits,
-    #     interpolation=train_interpolation,
-    #     mean=data_config['mean'],
-    #     std=data_config['std'],
-    #     num_workers=args.workers,
-    #     distributed=args.distributed,
-    #     collate_fn=collate_fn,
-    #     pin_memory=args.pin_mem,
-    #     use_multi_epochs_loader=args.use_multi_epochs_loader
-    # )
+
     # vanilla dataloader here
     from torchvision import datasets
     from torch.utils.data import DataLoader
@@ -504,33 +438,8 @@ def main():
             trainset, batch_size=TRAIN_BATCH_SIZE, shuffle=True, num_workers=16)
     import pdb; pdb.set_trace()
 
-    loader_eval = create_loader(
-        dataset_eval,
-        input_size=data_config['input_size'],
-        batch_size=args.validation_batch_size_multiplier * args.batch_size,
-        is_training=False,
-        use_prefetcher=args.prefetcher,
-        interpolation=data_config['interpolation'],
-        mean=data_config['mean'],
-        std=data_config['std'],
-        num_workers=args.workers,
-        distributed=args.distributed,
-        crop_pct=data_config['crop_pct'],
-        pin_memory=args.pin_mem,
-    )
-
     # setup loss function
-    if args.jsd:
-        assert num_aug_splits > 1  # JSD only valid with aug splits set
-        train_loss_fn = JsdCrossEntropy(num_splits=num_aug_splits, smoothing=args.smoothing).cuda()
-    elif mixup_active:
-        # smoothing is handled with mixup target transform
-        train_loss_fn = SoftTargetCrossEntropy().cuda()
-    elif args.smoothing:
-        train_loss_fn = LabelSmoothingCrossEntropy(smoothing=args.smoothing).cuda()
-    else:
-        train_loss_fn = nn.CrossEntropyLoss().cuda()
-    validate_loss_fn = nn.CrossEntropyLoss().cuda()
+    train_loss_fn = nn.CrossEntropyLoss().cuda()
 
     # setup checkpoint saver and eval metric tracking
     eval_metric = args.eval_metric
@@ -554,32 +463,19 @@ def main():
             f.write(args_text)
 
     try:
-        for epoch in range(start_epoch, num_epochs):
+        for epoch in range(start_epoch, 200):
             if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                 loader_train.sampler.set_epoch(epoch)
 
             train_metrics = train_one_epoch(
                 epoch, model, loader_train, optimizer, train_loss_fn, args,
-                lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
-                amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+                saver=saver, output_dir=output_dir,
+                amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema)
 
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if args.local_rank == 0:
                     _logger.info("Distributing BatchNorm running means and vars")
                 distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
-
-            eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-
-            if model_ema is not None and not args.model_ema_force_cpu:
-                if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                    distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
-                ema_eval_metrics = validate(
-                    model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
-                eval_metrics = ema_eval_metrics
-
-            if lr_scheduler is not None:
-                # step LR for next epoch
-                lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
             update_summary(
                 epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
@@ -598,14 +494,8 @@ def main():
 
 def train_one_epoch(
         epoch, model, loader, optimizer, loss_fn, args,
-        lr_scheduler=None, saver=None, output_dir='', amp_autocast=suppress,
-        loss_scaler=None, model_ema=None, mixup_fn=None):
-
-    if args.mixup_off_epoch and epoch >= args.mixup_off_epoch:
-        if args.prefetcher and loader.mixup_enabled:
-            loader.mixup_enabled = False
-        elif mixup_fn is not None:
-            mixup_fn.mixup_enabled = False
+        saver=None, output_dir='', amp_autocast=suppress,
+        loss_scaler=None, model_ema=None, ):
 
     second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
     batch_time_m = AverageMeter()
@@ -622,8 +512,6 @@ def train_one_epoch(
         data_time_m.update(time.time() - end)
         if not args.prefetcher:
             input, target = input.cuda(), target.cuda()
-            if mixup_fn is not None:
-                input, target = mixup_fn(input, target)
         if args.channels_last:
             input = input.contiguous(memory_format=torch.channels_last)
 
@@ -687,9 +575,6 @@ def train_one_epoch(
                 last_batch or (batch_idx + 1) % args.recovery_interval == 0):
             saver.save_recovery(epoch, batch_idx=batch_idx)
 
-        if lr_scheduler is not None:
-            lr_scheduler.step_update(num_updates=num_updates, metric=losses_m.avg)
-
         end = time.time()
         # end for
 
@@ -697,71 +582,6 @@ def train_one_epoch(
         optimizer.sync_lookahead()
 
     return OrderedDict([('loss', losses_m.avg)])
-
-
-def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
-    batch_time_m = AverageMeter()
-    losses_m = AverageMeter()
-    top1_m = AverageMeter()
-    top5_m = AverageMeter()
-
-    model.eval()
-
-    end = time.time()
-    last_idx = len(loader) - 1
-    with torch.no_grad():
-        for batch_idx, (input, target) in enumerate(loader):
-            last_batch = batch_idx == last_idx
-            if not args.prefetcher:
-                input = input.cuda()
-                target = target.cuda()
-            if args.channels_last:
-                input = input.contiguous(memory_format=torch.channels_last)
-
-            with amp_autocast():
-                output = model(input)
-            if isinstance(output, (tuple, list)):
-                output = output[0]
-
-            # augmentation reduction
-            reduce_factor = args.tta
-            if reduce_factor > 1:
-                output = output.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
-                target = target[0:target.size(0):reduce_factor]
-
-            loss = loss_fn(output, target)
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
-
-            if args.distributed:
-                reduced_loss = reduce_tensor(loss.data, args.world_size)
-                acc1 = reduce_tensor(acc1, args.world_size)
-                acc5 = reduce_tensor(acc5, args.world_size)
-            else:
-                reduced_loss = loss.data
-
-            torch.cuda.synchronize()
-
-            losses_m.update(reduced_loss.item(), input.size(0))
-            top1_m.update(acc1.item(), output.size(0))
-            top5_m.update(acc5.item(), output.size(0))
-
-            batch_time_m.update(time.time() - end)
-            end = time.time()
-            if args.local_rank == 0 and (last_batch or batch_idx % args.log_interval == 0):
-                log_name = 'Test' + log_suffix
-                _logger.info(
-                    '{0}: [{1:>4d}/{2}]  '
-                    'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})  '
-                    'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
-                    'Acc@1: {top1.val:>7.4f} ({top1.avg:>7.4f})  '
-                    'Acc@5: {top5.val:>7.4f} ({top5.avg:>7.4f})'.format(
-                        log_name, batch_idx, last_idx, batch_time=batch_time_m,
-                        loss=losses_m, top1=top1_m, top5=top5_m))
-
-    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
-
-    return metrics
-
 
 if __name__ == '__main__':
     main()
