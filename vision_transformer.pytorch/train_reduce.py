@@ -15,7 +15,6 @@ NVIDIA CUDA specific speedups adopted from NVIDIA Apex examples
 Hacked together by / Copyright 2020 Ross Wightman (https://github.com/rwightman)
 """
 import argparse
-import time
 import yaml
 import os
 import logging
@@ -24,6 +23,7 @@ from contextlib import suppress
 
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
 from timm.utils import *
 from timm.optim import create_optimizer
@@ -266,7 +266,8 @@ def main():
 
     # move model to GPU, enable channels last layout if set
     model.cuda()
-    optimizer = create_optimizer(args, model)
+    import pdb; pdb.set_trace()
+    optimizer = create_optimizer(args, model, filter_bias_and_bn=False)
 
     # setup automatic mixed-precision (AMP) loss scaling and op casting
     amp_autocast = suppress  # do nothing
@@ -287,7 +288,6 @@ def main():
     trainset = datasets.ImageFolder(root=IMAGENET_TRAIN, transform=imagenet_train_transform)
     loader_train = DataLoader(
             trainset, batch_size=TRAIN_BATCH_SIZE, shuffle=True, num_workers=16)
-    import pdb; pdb.set_trace()
 
     # setup loss function
     train_loss_fn = nn.CrossEntropyLoss().cuda()
@@ -320,7 +320,7 @@ def train_one_epoch(
         optimizer.zero_grad()
         if loss_scaler is not None:
             loss_scaler(
-                loss, optimizer, clip_grad=False, parameters=model.parameters())
+                loss, optimizer, clip_grad=None, parameters=model.parameters())
         else:
             loss.backward()
             optimizer.step()
@@ -331,7 +331,7 @@ def train_one_epoch(
                 'Loss: {loss.val:>9.6f} ({loss.avg:>6.4f})  '.format(
                     epoch,
                     batch_idx, len(loader),
-                    loss=losses_m)
+                    loss=losses_m))
 
     return OrderedDict([('loss', losses_m.avg)])
 
