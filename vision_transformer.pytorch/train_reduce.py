@@ -26,12 +26,15 @@ import torch.nn as nn
 import torch.optim as optim
 
 from timm.utils import *
-from timm.optim import create_optimizer
 from timm.utils import NativeScaler
 
 from model import ViT
+from torchvision import datasets
+from torch.utils.data import DataLoader
+from data import imagenet_train_transform, imagenet_eval_transform
+TRAIN_BATCH_SIZE = 256
+IMAGENET_TRAIN = '/home/john/john/data/train'
 
-torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
 
 # The first arg parser parses out only the --config argument, this argument is used to
@@ -267,7 +270,8 @@ def main():
     # move model to GPU, enable channels last layout if set
     model.cuda()
     import pdb; pdb.set_trace()
-    optimizer = create_optimizer(args, model, filter_bias_and_bn=False)
+    optimizer = optim.SGD(model.parameters(), momentum=0.9, nesterov=True,
+                          lr=0.003, weight_decay=0.0001)
 
     # setup automatic mixed-precision (AMP) loss scaling and op casting
     amp_autocast = suppress  # do nothing
@@ -280,11 +284,6 @@ def main():
         _logger.info('AMP not enabled. Training in float32.')
 
     # vanilla dataloader here
-    from torchvision import datasets
-    from torch.utils.data import DataLoader
-    from data import imagenet_train_transform, imagenet_eval_transform
-    TRAIN_BATCH_SIZE = 256
-    IMAGENET_TRAIN = '/home/john/john/data/train'
     trainset = datasets.ImageFolder(root=IMAGENET_TRAIN, transform=imagenet_train_transform)
     loader_train = DataLoader(
             trainset, batch_size=TRAIN_BATCH_SIZE, shuffle=True, num_workers=16)
