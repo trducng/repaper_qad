@@ -1,7 +1,6 @@
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
 import torch
+import os
+
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
@@ -26,6 +25,8 @@ def main():
     model = model.cuda()
     criterion = nn.CrossEntropyLoss().cuda()
     optimizer = optim.Adam(model.parameters(), lr=0.003)
+    # optimizer = optim.SGD(model.parameters(), momentum=0.9, nesterov=True,
+    #                       lr=0.003, weight_decay=0.0001)
     # scheduler = optim.lr_scheduler.CosineAnnealingLR(
     #     optimizer, T_max=5, eta_min=0.003)
 
