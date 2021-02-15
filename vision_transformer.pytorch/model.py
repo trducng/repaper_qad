@@ -1,146 +1,90 @@
 import torch
-import torch.nn.functional as F
-from einops import rearrange, repeat
-from timm.models.registry import register_model
-from torch import nn
+import torch.nn as nn
 
-MIN_NUM_PATCHES = 16
 
-class Residual(nn.Module):
-    def __init__(self, fn):
-        super().__init__()
-        self.fn = fn
-    def forward(self, x, **kwargs):
-        return self.fn(x, **kwargs) + x
 
-class PreNorm(nn.Module):
-    def __init__(self, dim, fn):
-        super().__init__()
-        self.norm = nn.LayerNorm(dim)
-        self.fn = fn
-    def forward(self, x, **kwargs):
-        return self.fn(self.norm(x), **kwargs)
+class VisionTransformer(nn.Module):
+    """The vision transformer
 
-class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout = 0.):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout)
-        )
-    def forward(self, x):
-        return self.net(x)
+    # Args
+        input_size <int>: the height/width of the input image
+        patch_size <int>: the number of patches to construct
+    """
 
-class Attention(nn.Module):
-    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
-        super().__init__()
-        inner_dim = dim_head *  heads
-        self.heads = heads
-        self.scale = dim_head ** -0.5
+    def __init__(self,
+            input_size=224,
+            patch_size=28,
+            hidden_dim=768,
+            n_layers=12,
+            n_attention_heads=12,
+            attention_dropout=0.0,
+            mlp_dropout=0.1,
+            mlp_dim=3072):
 
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
-            nn.Dropout(dropout)
-        )
+        super(VisionTransformer, self).__init__()
 
-    def forward(self, x, mask = None):
-        b, n, _, h = *x.shape, self.heads
-        qkv = self.to_qkv(x).chunk(3, dim = -1)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
-
-        dots = torch.einsum('bhid,bhjd->bhij', q, k) * self.scale
-        mask_value = -torch.finfo(dots.dtype).max
-
-        if mask is not None:
-            mask = F.pad(mask.flatten(1), (1, 0), value = True)
-            assert mask.shape[-1] == dots.shape[-1], 'mask has incorrect dimensions'
-            mask = mask[:, None, :] * mask[:, :, None]
-            dots.masked_fill_(~mask, mask_value)
-            del mask
-
-        attn = dots.softmax(dim=-1)
-
-        out = torch.einsum('bhij,bhjd->bhid', attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        out =  self.to_out(out)
-        return out
-
-class Transformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                Residual(PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout))),
-                Residual(PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout)))
-            ]))
-    def forward(self, x, mask = None):
-        for attn, ff in self.layers:
-            x = attn(x, mask = mask)
-            x = ff(x)
-        return x
-
-class ViT(nn.Module):
-    def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
-        super().__init__()
-        assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
-        num_patches = (image_size // patch_size) ** 2
-        patch_dim = channels * patch_size ** 2
-        assert num_patches > MIN_NUM_PATCHES, f'your number of patches ({num_patches}) is way too small for attention to be effective (at least 16). Try decreasing your patch size'
-        assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
-
+        self.input_size = input_size
         self.patch_size = patch_size
+        self.hidden_dim = hidden_dim
 
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
-        self.patch_to_embedding = nn.Linear(patch_dim, dim)
-        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
-        self.dropout = nn.Dropout(emb_dropout)
+        self.patch_embedding = nn.Conv2d(
+                in_channels=3,
+                out_channels=self.hidden_dim,
+                kernel_size=self.patch_size,
+                stride=self.patch_size,
+                bias=False)  # b x hidden_dim x n_patch/2 x n_patch/2
 
-        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
+        n_patches = int((input_size / patch_size) ** 2)
+        self.cls_embedding = nn.Embedding(1, self.hidden_dim)
+        self.position_embedding = nn.Embedding(
+                num_embeddings=n_patches + 1,
+                embedding_dim=self.hidden_dim)
+        self.positions = torch.LongTensor(range(n_patches + 1))
 
-        self.pool = pool
-        self.to_latent = nn.Identity()
+        self.encoder_layer = nn.TransformerEncoderLayer(
+                d_model=self.hidden_dim,
+                nhead=n_attention_heads,
+                dim_feedforward=mlp_dim,
+                dropout=attention_dropout,
+                activation='gelu')
+        self.encoder = nn.TransformerEncoder(
+                encoder_layer=self.encoder_layer,
+                num_layers=n_layers,
+                norm=nn.LayerNorm(self.hidden_dim))
 
-        self.mlp_head = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, num_classes)
-        )
+        self.linear = nn.Sequential(
+                nn.Linear(in_features=self.hidden_dim, out_features=mlp_dim),
+                nn.Linear(in_features=mlp_dim, out_features=1000))
 
-    def forward(self, img, mask = None):
-        p = self.patch_size
+    def forward(self, input_x):
+        """Perform the forward pass"""
+        batch = input_x.size(0)
 
-        # b x num_patches x patch_dim
-        x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p)
-        # b x num_patches x dim
-        x = self.patch_to_embedding(x)
-        b, n, _ = x.shape
+        # patch embedding
+        hidden = self.patch_embedding(input_x) # b x hidden_dim x n_patch/2 x n_patch/2
+        hidden = hidden.view(batch, self.hidden_dim, -1) # b x hidden_dim x T
+        hidden = hidden.permute(0, 2, 1) # b x T x hidden_dim
 
-        cls_tokens = repeat(self.cls_token, '() n d -> b n d', b = b)
-        # add a class token to input of transformer: b x (num_patches+1) x dim
-        x = torch.cat((cls_tokens, x), dim=1)
-        x += self.pos_embedding[:, :(n + 1)]
-        x = self.dropout(x)
+        # add cls embedding
+        cls_token = self.cls_embedding(torch.LongTensor([0] * batch))
+        cls_token = cls_token.unsqueeze(1)
+        hidden = torch.cat([cls_token, hidden], dim=1)  # b x (T+1) x hidden_dim
 
-        x = self.transformer(x, mask)
+        # positional encoding
+        positions = self.position_embedding(self.positions).unsqueeze(0)
+        hidden += positions     # b x (T+1) x hidden_dim
 
-        x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
+        # transformer
+        hidden = self.encoder(hidden)  # b x (T+1) x hidden_dim
+        hidden = hidden[:,0,:]  # b x hidden_dim
 
-        x = self.to_latent(x)
-        return self.mlp_head(x)
+        # output
+        output = self.linear(hidden)    # b x 1000
 
+        return output
 
-@register_model
-def vit_vanilla(**kwargs):
-    model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
-                heads=12, mlp_dim=3072)
-    return model
 
 if __name__ == '__main__':
-    vit = ViT(image_size=224, patch_size=28, num_classes=1000, dim=128, depth=3,
-              heads=5, mlp_dim=512)
-    input_ = torch.rand((1, 3, 224, 224))
-    vit(input_)
+    input_x = torch.randn(10, 3, 224, 224)
+    model = VisionTransformer()
+    output = model(input_x)
