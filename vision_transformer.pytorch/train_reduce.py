@@ -9,12 +9,14 @@ from torchvision import datasets
 
 from timm.utils import NativeScaler
 
-from model import ViT
+# from model import ViT
+from model import VisionTransformer
+from ref_model import ViT
 from data import imagenet_train_transform, imagenet_eval_transform
 
 
 TRAIN_BATCH_SIZE = 256
-IMAGENET_TRAIN = '/home/john/john/data/train'
+IMAGENET_TRAIN = '/home/john/john/data/imagenet/train'
 
 
 
@@ -25,6 +27,7 @@ def main():
 
     model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
                 heads=12, mlp_dim=3072)
+    # model = VisionTransformer()
     model.cuda()
     optimizer = optim.SGD(model.parameters(), momentum=0.9, nesterov=True,
                           lr=0.003, weight_decay=0.0001)
@@ -75,6 +78,13 @@ def train_one_epoch(
 
         if batch_idx % 50 == 0:
             print(f'Loss - {epoch}: {loss.item()}')
+
+        if batch_idx % 1000 == 0:
+            state_dict = {
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict()
+            }
+            torch.save(state_dict, f'logs/train_reduce_{epoch}.pth')
 
 if __name__ == '__main__':
     main()

@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 
-
 class VisionTransformer(nn.Module):
     """The vision transformer
 
@@ -17,7 +16,7 @@ class VisionTransformer(nn.Module):
             hidden_dim=768,
             n_layers=12,
             n_attention_heads=12,
-            attention_dropout=0.0,
+            attention_dropout=0.1,
             mlp_dropout=0.1,
             mlp_dim=3072):
 
@@ -32,14 +31,14 @@ class VisionTransformer(nn.Module):
                 out_channels=self.hidden_dim,
                 kernel_size=self.patch_size,
                 stride=self.patch_size,
-                bias=False)  # b x hidden_dim x n_patch/2 x n_patch/2
+                bias=True)  # b x hidden_dim x n_patch/2 x n_patch/2
 
         n_patches = int((input_size / patch_size) ** 2)
         self.cls_embedding = nn.Embedding(1, self.hidden_dim)
         self.position_embedding = nn.Embedding(
                 num_embeddings=n_patches + 1,
                 embedding_dim=self.hidden_dim)
-        self.positions = torch.LongTensor(range(n_patches + 1))
+        self.positions = torch.LongTensor(range(n_patches + 1)).cuda()
 
         self.encoder_layer = nn.TransformerEncoderLayer(
                 d_model=self.hidden_dim,
@@ -66,7 +65,7 @@ class VisionTransformer(nn.Module):
         hidden = hidden.permute(0, 2, 1) # b x T x hidden_dim
 
         # add cls embedding
-        cls_token = self.cls_embedding(torch.LongTensor([0] * batch))
+        cls_token = self.cls_embedding(torch.LongTensor([0] * batch).cuda())
         cls_token = cls_token.unsqueeze(1)
         hidden = torch.cat([cls_token, hidden], dim=1)  # b x (T+1) x hidden_dim
 
