@@ -34,25 +34,25 @@ class VisionTransformer(nn.Module):
                 bias=True)  # b x hidden_dim x n_patch/2 x n_patch/2
 
         n_patches = int((input_size / patch_size) ** 2)
-        self.cls_embedding = nn.Embedding(1, self.hidden_dim)
-        self.position_embedding = nn.Embedding(
-                num_embeddings=n_patches + 1,
-                embedding_dim=self.hidden_dim)
-        self.positions = torch.LongTensor(range(n_patches + 1)).cuda()
+        self.cls_embedding = nn.Parameter(torch.randn(1, 1, self.hidden_dim))
+        self.position_embedding = nn.Parameter(torch.randn(
+                1,
+                n_patches + 1,
+                self.hidden_dim))
 
-        self.encoder_layer = nn.TransformerEncoderLayer(
+        encoder_layer = nn.TransformerEncoderLayer(
                 d_model=self.hidden_dim,
                 nhead=n_attention_heads,
                 dim_feedforward=mlp_dim,
                 dropout=attention_dropout,
-                activation='gelu')
+                activation='relu')
         self.encoder = nn.TransformerEncoder(
-                encoder_layer=self.encoder_layer,
-                num_layers=n_layers,
-                norm=nn.LayerNorm(self.hidden_dim))
+                encoder_layer=encoder_layer,
+                num_layers=n_layers)
 
         self.linear = nn.Sequential(
                 nn.Linear(in_features=self.hidden_dim, out_features=mlp_dim),
+                nn.ReLU(),
                 nn.Linear(in_features=mlp_dim, out_features=1000))
 
     def forward(self, input_x):
@@ -65,20 +65,18 @@ class VisionTransformer(nn.Module):
         hidden = hidden.permute(0, 2, 1) # b x T x hidden_dim
 
         # add cls embedding
-        cls_token = self.cls_embedding(torch.LongTensor([0] * batch).cuda())
-        cls_token = cls_token.unsqueeze(1)
+        cls_token = self.cls_embedding.expand(batch, -1, -1)
         hidden = torch.cat([cls_token, hidden], dim=1)  # b x (T+1) x hidden_dim
 
         # positional encoding
-        positions = self.position_embedding(self.positions).unsqueeze(0)
-        hidden += positions     # b x (T+1) x hidden_dim
+        hidden += self.position_embedding     # b x (T+1) x hidden_dim
 
         # transformer
-        hidden = self.encoder(hidden)  # b x (T+1) x hidden_dim
-        hidden = hidden[:,0,:]  # b x hidden_dim
+        hidden1 = self.encoder(hidden)  # b x (T+1) x hidden_dim
+        hidden1 = hidden1[:,0,:]  # b x hidden_dim
 
         # output
-        output = self.linear(hidden)    # b x 1000
+        output = self.linear(hidden1)    # b x 1000
 
         return output
 

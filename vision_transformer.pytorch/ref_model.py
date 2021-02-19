@@ -4,6 +4,9 @@ from einops import rearrange, repeat
 from timm.models.registry import register_model
 from torch import nn
 
+from model_temp import TransformerEncoder
+
+
 MIN_NUM_PATCHES = 16
 
 class Residual(nn.Module):
@@ -110,6 +113,19 @@ class ViT(nn.Module):
             nn.Linear(dim, num_classes)
         )
 
+        # vanilla transformer
+        encoder_layer = nn.TransformerEncoderLayer(
+                d_model=dim, nhead=heads, dim_feedforward=mlp_dim, dropout=dropout,
+                activation='relu')
+        # self.encoder = nn.TransformerEncoder(encoder_layer=encoder_layer, num_layers=depth)
+        self.encoder = TransformerEncoder(
+                layers_count=depth,
+                d_model=dim,
+                heads_count=heads,
+                d_ff=mlp_dim,
+                dropout_prob=dropout,
+                embedding=nn.Identity())
+
     def forward(self, img, mask = None):
         p = self.patch_size
 
@@ -125,8 +141,8 @@ class ViT(nn.Module):
         x += self.pos_embedding[:, :(n + 1)]
         x = self.dropout(x)
 
-        x = self.transformer(x, mask)
-
+        # x = self.transformer(x, mask)
+        x = self.encoder(x, None)
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
 
         x = self.to_latent(x)

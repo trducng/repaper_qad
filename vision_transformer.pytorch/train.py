@@ -12,7 +12,7 @@ from ref_model import ViT
 
 TRAIN_BATCH_SIZE = 4
 
-IMAGENET_TRAIN = '/home/john/john/data/imagenet/train'
+IMAGENET_TRAIN = '/home/john/john/data/imagenet/val'
 IMAGENET_VAL = '/home/john/datasets/imagenet/object_localization/val'
 IMAGENET_TEST = '/home/john/datasets/imagenet/object_localization/test'
 
@@ -21,12 +21,14 @@ def main():
 
     trainset = datasets.ImageFolder(root=IMAGENET_TRAIN, transform=imagenet_train_transform)
 
-    model = VisionTransformer()
+    # model = VisionTransformer()
+    model = ViT(image_size=256, patch_size=32, num_classes=1000, dim=768, depth=12,
+                heads=12, mlp_dim=3072)
     model = model.cuda()
-    criterion = nn.CrossEntropyLoss().cuda()
+    criterion = nn.CrossEntropyLoss()
     # optimizer = optim.Adam(model.parameters(), lr=0.003)
     optimizer = optim.SGD(model.parameters(), momentum=0.9, nesterov=True,
-                          lr=0.003, weight_decay=0.0001)
+                          lr=0.0001, weight_decay=0.0001)
     # scheduler = optim.lr_scheduler.CosineAnnealingLR(
     #     optimizer, T_max=5, eta_min=0.003)
 
