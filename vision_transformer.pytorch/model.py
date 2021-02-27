@@ -2,6 +2,102 @@ import torch
 import torch.nn as nn
 
 
+class MultiHeadAttention(nn.Module):
+    """The multihead attention module
+    """
+
+    def __init__(self, dim, n_heads, dropout):
+        super(MultiHeadAttention, self).__init__()
+
+        self.dim = dim
+        self.n_heads = n_heads
+        self.dropout = dropout
+        self.scale = dim ** -0.5
+
+        self.key_project = nn.Linear(dim, n_heads * dim)
+        self.query_project = nn.Linear(dim, n_heads * dim)
+        self.value_project = nn.Linear(dim, n_heads * dim)
+        self.final_project = nn.Linear(n_heads * dim, dim)
+        self.drop_layer = nn.Dropout(dropout)
+
+    def forward(self, x):
+        """Perform the forward pass
+
+        # Args
+            x <Tensor>: input of shape b x t x dim
+        """
+        batch, n_steps, dim = x.shape
+
+        key = self.key_project(x)       # b x t x hidden_dim
+        query = self.query_project(x)
+        value = self.value_project(x)
+
+        # b x n_heads x t x dim
+        key = key.view(batch, n_steps, self.n_heads, dim).transpose(1, 2)
+        query = query.view(batch, n_steps, self.n_heads, dim).transpose(1, 2)
+        value = value.view(batch, n_steps, self.n_heads, dim).transpose(1, 2)
+
+        kq = torch.matmul(query, key.transpose(2, 3)) * self.scale  # b x n_heads x t x t
+        kq = torch.softmax(kq, dim=-1)      # b x n_heads x t x t
+        kq = self.drop_layer(kq)
+        value = kq @ value                  # b x n_heads x t x dim
+
+        value = value.transpose(1, 2) # b x t x n_heads x dim 
+        value = value.reshape(batch, n_steps, -1).contiguous()  # b x t x hidden_dim
+        output = self.final_project(value)  # b x t x dim
+
+        return output
+
+
+class EncoderLayer(nn.Module):
+    """Each transformer encoder layer
+    """
+    def __init__(self, dim, n_heads, attention_dropout, mlp_dim, dropout):
+        super(EncoderLayer, self).__init__()
+        self.attention = MultiHeadAttention(dim, n_heads, attention_dropout)
+        self.drop_layer1 = nn.Dropout(dropout)
+        self.drop_layer2 = nn.Dropout(dropout)
+        self.linear = nn.Sequential(
+                nn.Linear(dim, mlp_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(mlp_dim, dim))
+        self.layer_norm1 = nn.LayerNorm(dim)
+        self.layer_norm2 = nn.LayerNorm(dim)
+
+    def forward(self, x):
+        """Perform the input pass"""
+        hidden1 = self.layer_norm1(x)        # b x t x dim
+        hidden1 = self.attention(hidden1)
+        hidden1 = self.drop_layer1(hidden1)
+        hidden1 += x
+
+        hidden2 = self.layer_norm2(hidden1)
+        hidden2 = self.linear(hidden2)
+        hidden2 = self.drop_layer2(hidden2)
+        hidden2 += hidden1
+
+        return hidden2
+
+
+class Encoder(nn.Module):
+    """Encoder in Transformer
+    """
+    def __init__(self, dim, n_heads, attention_dropout, mlp_dim, dropout, n_layers):
+        super(Encoder, self).__init__()
+        self.blocks = nn.Sequential(*[
+                EncoderLayer(dim, n_heads, attention_dropout, mlp_dim, dropout)
+                for _ in range(n_layers)])
+        self.norm = nn.LayerNorm(dim)
+
+    def forward(self, x):
+        """Perform the forward pass"""
+        hidden = self.blocks(x)
+        output = self.norm(hidden)
+
+        return output
+
+
 class VisionTransformer(nn.Module):
     """The vision transformer
 
@@ -14,7 +110,7 @@ class VisionTransformer(nn.Module):
             input_size=224,
             patch_size=28,
             hidden_dim=768,
-            n_layers=12,
+            n_layers=8,
             n_attention_heads=12,
             attention_dropout=0.1,
             mlp_dropout=0.1,
@@ -40,15 +136,13 @@ class VisionTransformer(nn.Module):
                 n_patches + 1,
                 self.hidden_dim))
 
-        encoder_layer = nn.TransformerEncoderLayer(
-                d_model=self.hidden_dim,
-                nhead=n_attention_heads,
-                dim_feedforward=mlp_dim,
-                dropout=attention_dropout,
-                activation='relu')
-        self.encoder = nn.TransformerEncoder(
-                encoder_layer=encoder_layer,
-                num_layers=n_layers)
+        self.encoder = Encoder(
+                dim=hidden_dim,
+                n_heads=n_attention_heads,
+                attention_dropout=attention_dropout,
+                mlp_dim=mlp_dim,
+                dropout=mlp_dropout,
+                n_layers=n_layers)
 
         self.linear = nn.Sequential(
                 nn.Linear(in_features=self.hidden_dim, out_features=mlp_dim),

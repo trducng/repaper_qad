@@ -5,6 +5,7 @@ from timm.models.registry import register_model
 from torch import nn
 
 from model_temp import TransformerEncoder
+import model
 
 
 MIN_NUM_PATCHES = 16
@@ -118,13 +119,21 @@ class ViT(nn.Module):
                 d_model=dim, nhead=heads, dim_feedforward=mlp_dim, dropout=dropout,
                 activation='relu')
         # self.encoder = nn.TransformerEncoder(encoder_layer=encoder_layer, num_layers=depth)
-        self.encoder = TransformerEncoder(
-                layers_count=depth,
-                d_model=dim,
-                heads_count=heads,
-                d_ff=mlp_dim,
-                dropout_prob=dropout,
-                embedding=nn.Identity())
+        # self.encoder = TransformerEncoder(
+        #         layers_count=depth,
+        #         d_model=dim,
+        #         heads_count=heads,
+        #         d_ff=mlp_dim,
+        #         dropout_prob=dropout,
+        #         embedding=nn.Identity())
+        self.encoder = model.Encoder(
+                dim=dim,
+                n_heads=heads,
+                attention_dropout=dropout,
+                mlp_dim=mlp_dim,
+                dropout=dropout,
+                n_layers=depth)
+
 
     def forward(self, img, mask = None):
         p = self.patch_size
@@ -142,7 +151,7 @@ class ViT(nn.Module):
         x = self.dropout(x)
 
         # x = self.transformer(x, mask)
-        x = self.encoder(x, None)
+        x = self.encoder(x)
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
 
         x = self.to_latent(x)
