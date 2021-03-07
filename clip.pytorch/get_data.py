@@ -1,3 +1,5 @@
+import pickle
+
 import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets
@@ -46,10 +48,11 @@ def get_imagenet():
             predictions += image_pred.argmax(dim=-1).cpu().data.numpy().tolist()
             ground_truths += y.data.numpy().tolist()
 
-    import pdb; pdb.set_trace()
     return predictions, ground_truths
 
 
 
 if __name__ == '__main__':
-    get_imagenet()
+    predictions, ground_truths = get_imagenet()
+    with open('output_get_data.pkl', 'wb') as f_out:
+        pickle.dump({'predictions': predictions, 'ground_truths': ground_truths}, f_out)
