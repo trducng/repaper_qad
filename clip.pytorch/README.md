@@ -6,7 +6,7 @@ millions image-text pairs for 32 epochs, which would cost several thousands of
 GPU just to train for a hundred days. Instead, we should focus on answering
 these questions:
 
-1. Where does the VisionTransformer attend to given a text prompt?
+1. Where does the VisionTransformer attend to in an image given a text prompt?
 2. What would happen if we change the text prompt given the same input image?
 3. What would happen if we change the text prompt given the same input image
    where the image contains multiple objects?
@@ -29,5 +29,29 @@ we need to come up with another way to show the attention depending on the text
 prompt.
 
 
-In multi-head attention, each head only has 64 dimensions which means it does
+
+Comments:
+
+- In multi-head attention, each head only has 64 dimensions which means it does
 not need to be very high dimension.
+- The vision transformer gives attention to the foreground region, regardless
+  of text prompt. In this sense, it doesn't really matter.
+- The system must have a list of label first, but now it can begin to deal with
+  new concept gracefully.
+- Construct memory.
+
+
+What if:
+- We shuffle the attention? Even modify the attention? Will the result be the same?
+-> Drastically different
+- What if we tell the model where to look for.
+Will need:
+- Use mouse.
+- Click on the region to focus more to
+- Can select the layer
+- Can edit the attention in the layer
+-> If we do this, can we construct an attention map that worths better?
+-> For this, we should find images that the model make incorrect prediction, and
+then we guide with attention.
+- It seems transformer lacks the inherent part-whole representation? It is just the
+development of a patch of image.

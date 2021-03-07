@@ -46,6 +46,17 @@ class MultiheadAttention(nn.Module):
         x = x.contiguous().view(-1, x.size(1)*self.num_attention_heads, self.attention_head_size)
         return x.transpose(0, 1)
 
+    def revert_attention(self, attention):
+        """
+        # Args
+            attention <Tensor>: size (bs x num) x t x t
+        """
+        t = attention.size(1)
+        bs = int(attention.size(0) / self.num_attention_heads)
+        attention = attention.view(bs, self.num_attention_heads, t, t)
+        return attention
+
+
     def forward(self, hidden_states):
         # len*bs*(3*hidden_size)
         mixed_layer = torch.matmul(hidden_states, self.in_proj_weight.t()) + self.in_proj_bias
@@ -71,8 +82,12 @@ class MultiheadAttention(nn.Module):
             attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs = nn.Softmax(dim=-1)(attention_scores) # (bs * num_heads) x t x t
+        idx = torch.randperm(attention_probs.nelement())
+        attention_probs = attention_probs.view(-1)[idx].view(attention_probs.size())
+        # import ipdb; ipdb.set_trace()
         attention_weights = attention_probs.detach()
+        attention_weights = self.revert_attention(attention_weights)
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
@@ -103,15 +118,11 @@ class ResidualAttentionBlock(nn.Module):
         self.attention_weights = None
 
     def forward(self, hidden_states):
-        """
-        # Args
-            attention_layers <[Tensor]>: this is the list of layers
-        """
         # different layernorm location: https://github.com/openai/gpt-2/blob/master/src/model.py#L123
         # https://d4mucfpksywv.cloudfront.net/better-language-models/language-models.pdf
         self.ln_1 = self.ln_1.float()
         hidden_states_to_ln = self.ln_1(hidden_states.type(torch.float32)).type(hidden_states.dtype)
-        
+
         attn_outputs, attention_weights = self.attn(hidden_states_to_ln)
         self.attention_weights = attention_weights
         hidden_states = attn_outputs + hidden_states

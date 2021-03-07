@@ -3,6 +3,9 @@ from clip_tokenizer import SimpleTokenizer
 from PIL import Image
 import torch
 from torchvision import transforms
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
 
 
 def get_attention_maps(model, visual=True):
@@ -15,9 +18,9 @@ def get_attention_maps(model, visual=True):
     for layer in component.resblocks._modules.values():
         attention_layers.append(layer.attention_weights)
 
-    attention_layers = torch.stack(attention_layers, dim=0) # layers x head x t x t
-    attention_layers = torch.mean(attention_layers, dim=1)  # layers x t x t
-    res_attention = torch.eye(attention_layers.size(1))
+    attention_layers = torch.stack(attention_layers, dim=0) # layers x bs x head x t x t
+    attention_layers = torch.mean(attention_layers, dim=2)  # layers x bs x t x t
+    res_attention = torch.eye(attention_layers.size(-1))
     attention_layers += res_attention
     attention_layers /= attention_layers.sum(dim=-1, keepdim=True)
 
@@ -26,7 +29,7 @@ def get_attention_maps(model, visual=True):
     for idx in range(1, final.size(0)):
         final[idx] = torch.matmul(attention_layers[idx], final[idx-1])
 
-    return final
+    return final.transpose(0, 1)    # bs x layer x key x query
 
 
 if __name__ == '__main__':
@@ -54,23 +57,31 @@ if __name__ == '__main__':
     else:
         model.to(device=device).eval().float()
 
+    model.eval()
     with torch.no_grad():
-        query = ["a balo", "a human", "a tiger", "a cat", "a human and a tiger"]
+        # query = ["a balo", "a human", "an apple", "a tiger", "a cat", "a human and a tiger"]
+        query = ["a photo of a tinca tinca", "a photo of a wombat", "a photo of a restaurant"]
         text = tokenizer.encode(query).to(device)
         text_features = model.encode_text(text)  # N_queries x 512
 
-        image_path = "images/balloon.jpg"
-        # view_transform(Image.open(image_path)).show()
+        image_path = "/home/john/datasets/imagenet/object_localization/val/n01440764/ILSVRC2012_val_00002138.JPEG"
+        image_vis = np.asarray(view_transform(Image.open(image_path)))
         image = transform(Image.open(image_path)).unsqueeze(0).to(device)
         image_features = model.encode_image(image) # 1 x 512
 
         text_attention = get_attention_maps(model, visual=False)
-        visual_attention = get_attention_maps(model, visual=True)
+        visual_attention = get_attention_maps(model, visual=True).squeeze(0)
 
-        import pdb; pdb.set_trace()
+        vis = visual_attention[-1, 0, 1:].reshape(7,7).detach().numpy()
+        vis -= vis.min()
+        vis /= vis.max()
+        vis = cv2.resize(vis, (224, 224))[...,np.newaxis]
+        result = (vis * image_vis).astype(np.uint8)
+        Image.fromarray(result).show()
 
         logits_per_image, logits_per_text = model(image, text, return_loss=False)
         probs = logits_per_image.softmax(dim=-1).cpu().numpy()
 
+    print(query)
     print("Label probs:", probs)
 
