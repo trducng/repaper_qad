@@ -163,7 +163,7 @@ class SimpleTokenizer(object):
                 tensor([[  320, 22697, 49407,     0,     0,     0,...],
                         [  320,  1929, 49407,     0,     0,     0,...]])
         """
-        text_tokens = [self._encode(desc + " <|endoftext|>") for desc in text]
+        text_tokens = [self._encode("<|startoftext|> " + desc + " <|endoftext|>") for desc in text]
         text_input = torch.zeros(len(text_tokens), self.context_length, dtype=torch.long)
 
         for i, tokens in enumerate(text_tokens):

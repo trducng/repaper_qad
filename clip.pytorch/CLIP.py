@@ -91,8 +91,10 @@ class MultiheadAttention(nn.Module):
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
-        attention_probs = self.dropout_att(attention_probs)
+        # attention_probs = self.dropout_att(attention_probs)
         context_layer = torch.bmm(attention_probs, value_layer)
+        print(attention_probs.sum(), value_layer.sum(), context_layer.sum())
+        import pdb; pdb.set_trace()
 
         context_layer = context_layer.transpose(0, 1).contiguous()
         context_layer = context_layer.view(hidden_states.size())

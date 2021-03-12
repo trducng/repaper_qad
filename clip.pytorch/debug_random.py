@@ -1,11 +1,14 @@
 from CLIP import CLIP, build_transform
 from clip_tokenizer import SimpleTokenizer
+import PIL
 from PIL import Image
 import torch
 from torchvision import transforms
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import pickle
+import types
 
 
 def get_attention_maps(model, visual=True):
@@ -31,6 +34,27 @@ def get_attention_maps(model, visual=True):
 
     return final.transpose(0, 1)    # bs x layer x key x query
 
+intermediate = {}
+def debug_hook(module, input, output):
+    if isinstance(output, PIL.Image.Image):
+        return output
+    name = str(type(module))
+    idx = len(intermediate)
+    if idx == 3:
+        import pdb; pdb.set_trace()
+        print(input[0].sum())
+    if isinstance(output, tuple):
+        to_log = tuple([each.cpu().data.numpy() for each in output])
+    else:
+        to_log = output.cpu().data.numpy()
+    log = {
+        'name': name,
+        'output': to_log
+    }
+    intermediate[idx] = log
+    return output
+
+torch.nn.modules.module.register_module_forward_hook(debug_hook)
 
 if __name__ == '__main__':
 
@@ -48,16 +72,17 @@ if __name__ == '__main__':
         transforms.Resize(224, interpolation=Image.BICUBIC),
         transforms.CenterCrop(224),
         lambda image: image.convert('RGB')])
-    is_fp16 = False
+    is_fp16 = True
 
     # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = 'cpu'
+    device = 'cuda'
     if is_fp16:
         model.to(device=device).eval().half()
     else:
         model.to(device=device).eval().float()
 
     model.eval()
+    # model.register_module_forward_hook(debug_hook)
     with torch.no_grad():
         # query = ["a balo", "a human", "an apple", "a tiger", "a cat", "a human and a tiger"]
         query = ["a photo of a tinca tinca", "a photo of a wombat", "a photo of a restaurant"]
@@ -84,4 +109,6 @@ if __name__ == '__main__':
 
     print(query)
     print("Label probs:", probs)
+    # with open('here2.pkl', 'wb') as f_out:
+    #     pickle.dump(intermediate, f_out)
 
