@@ -13,7 +13,7 @@ def get_imagenet():
     # configs
     MODEL_PATH = 'clip.pth'
     VOCAB_PATH = 'bpe_simple_vocab_16e6.txt.gz'
-    IMAGENET_PATH = '/home/john/datasets/imagenet/object_localization'
+    IMAGENET_PATH = '/home/john/john/data/imagenet'
     is_fp16 = False
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -34,7 +34,7 @@ def get_imagenet():
 
     # initialize the data
     data = datasets.ImageNet(IMAGENET_PATH, 'val', transform=transform)
-    loader = DataLoader(data, batch_size=32, shuffle=False, num_workers=16)
+    loader = DataLoader(data, batch_size=256, shuffle=False, num_workers=16)
     # important no shuffle
 
     # inference
@@ -53,8 +53,8 @@ def get_imagenet():
             ground_truths += y.data.numpy().tolist()
 
             # print(idx)
-            # if idx == 1:
-            #     break
+            if idx % 100 == 1:
+                print(idx)
 
     return predictions, ground_truths
 
