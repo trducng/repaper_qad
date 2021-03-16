@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import cv2
 import pickle
 import types
+from dawnet.data.image import show_images
+
 
 def get_attention_maps(model, visual=True):
     if visual:
@@ -76,13 +78,13 @@ if __name__ == '__main__':
     model.eval()
     # model.register_module_forward_hook(debug_hook)
     with torch.no_grad():
-        query = ["a zebra", "a human", "an apple", "a tiger", "a cat", "a human and a tiger"]
+        query = ["a horse", "a human", "an apple", "a tiger", "a cat", "a human and a tiger"]
         # query = ["a photo of a tinca tinca", "a photo of a wombat", "a photo of a restaurant"]
         text = tokenizer.encode(query).to(device)
         text_features = model.encode_text(text)  # N_queries x 512
 
         # image_path = "/home/john/datasets/imagenet/object_localization/val/n01440764/ILSVRC2012_val_00002138.JPEG"
-        image_path = 'images/zebra1.jpg'
+        image_path = 'images/tiger1.jpg'
         image_name = Path(image_path).stem
         image_vis = np.asarray(view_transform(Image.open(image_path)))
         image = transform(Image.open(image_path)).unsqueeze(0).to(device)
@@ -91,15 +93,18 @@ if __name__ == '__main__':
         visual_attention = get_attention_maps(model, visual=True) #[<n_heads, t, t>]
 
         for layer_n, each_attention_layer in enumerate(visual_attention):
+            layer_images = []
             for idx in range(each_attention_layer.size(0)):
                 vis = each_attention_layer[idx, 0, 1:].reshape(7,7).detach().numpy()
                 vis -= vis.min()
                 vis /= vis.max()
                 vis = cv2.resize(vis, (224, 224))[...,np.newaxis]
                 result = (vis * image_vis).astype(np.uint8)
-                output_file = Path(f'logs/{image_name}/layer_{layer_n:02d}/head_{idx:02d}.png')
-                output_file.parent.mkdir(parents=True, exist_ok=True)
-                Image.fromarray(result).save(str(output_file))
+                layer_images.append(result)
+
+            output_file = Path(f'logs/{image_name}/layer_{layer_n:02d}.png')
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            show_images(layer_images, max_columns=4, show=False, output=str(output_file))
 
         logits_per_image, logits_per_text = model(image, text)
         probs = logits_per_image.softmax(dim=-1).cpu().numpy()
