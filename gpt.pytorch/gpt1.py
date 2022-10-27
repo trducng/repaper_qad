@@ -158,8 +158,23 @@ class DecoderBlock(nn.Module):
         return self.norm_02(x + z)
 
 
-class EmbedAndPositionalEncoding(nn.Module):
-    pass
+class EmbeddingAndPositionalEncoding(nn.Module):
+    """Input embedding and positional encoding"""
+
+    def __init__(self, num_embeddings, embedding_dim, sequence_length):
+        super(EmbeddingAndPositionalEncoding, self).__init__()
+        self.text_embedding = nn.Embedding(
+            num_embeddings=num_embeddings, embedding_dim=embedding_dim
+        )
+        self.position_embedding = nn.Embedding(
+            num_embeddings=sequence_length, embedding_dim=embedding_dim
+        )
+
+    def forward(self, x):
+        pos = torch.arange(0, x.shape[1]).unsqueeze(0)
+        tok_emb = self.text_embedding(x)
+        pos_emb = self.position_embedding(pos)
+        return tok_emb + pos_emb
 
 
 class TransformerDecoder(nn.Module):
@@ -181,16 +196,51 @@ class TransformerDecoder(nn.Module):
 
 class Transformer(nn.Module):
     """The transformer model used in GPT"""
-    pass
+
+    def __init__(self, vocab_size, embedding_dim, sequence_length, n_blocks, n_heads):
+        super(Transformer, self).__init__()
+        self.embedding = EmbeddingAndPositionalEncoding(
+            num_embeddings=vocab_size,
+            embedding_dim=embedding_dim,
+            sequence_length=sequence_length,
+        )
+        self.transformer = TransformerDecoder(
+            n_blocks=n_blocks,
+            n_heads=n_heads,
+            input_shape=embedding_dim,
+            seq_length=sequence_length,
+        )
+        self.linear = nn.Linear(in_features=embedding_dim, out_features=vocab_size)
+
+    def forward(self, x):
+        z = self.embedding(x)
+        z = self.transformer(z)
+        return self.linear(z)
 
 
 if __name__ == "__main__":
-    n_heads = 2
-    input_shape = 8
-    seq_length = 3
-    x = torch.ones(1, seq_length, input_shape)
-    mha = TransformerDecoder(n_blocks=12, n_heads=2, input_shape=input_shape, seq_length=seq_length)
-    abc = mha(x)
-    import pdb
+    def test_TransformerDecoder():
+        n_heads = 2
+        input_shape = 8
+        seq_length = 3
+        x = torch.ones(1, seq_length, input_shape)
+        mha = TransformerDecoder(
+            n_blocks=12, n_heads=2, input_shape=input_shape, seq_length=seq_length
+        )
+        abc = mha(x)
 
-    pdb.set_trace()
+    def test_Transformer():
+        model = Transformer(
+            vocab_size=1000,
+            embedding_dim=192,
+            sequence_length=1024,
+            n_blocks=6,
+            n_heads=6,
+        )
+        input_ = torch.zeros(1, 1024, dtype=torch.int64)
+        input_[0,0] = 10
+        input_[0,2] = 120
+        output = model(input_)
+        return output
+
+    output = test_Transformer()
