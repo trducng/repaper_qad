@@ -85,24 +85,21 @@ class MaskedMultiHeadAttention(nn.Module):
 
     Unlike SimplifiedMultiHeadAttention, this implementation guarantees the input and
     output have same dimension. This implementation can better be executed on GPU.
+    Also, the mask is there to make sure that the future does not come back to the
+    past.
 
     Args:
         input_shape: dimension of the input
         n_heads: the number of attention heads
-        seq_length: the sequence length
     """
 
-    def __init__(self, input_shape: int, n_heads: int, seq_length: int):
+    def __init__(self, input_shape: int, n_heads: int):
         if input_shape % n_heads:
             raise AttributeError(f"{input_shape=} must be divisible by {n_heads=}")
 
         super().__init__()
         self.input_shape = input_shape
         self.n_heads = n_heads
-        self.seq_length = seq_length
-        self.mask = torch.tril(torch.ones(seq_length, seq_length)).view(
-            1, 1, seq_length, seq_length
-        )
         self.kqv = nn.Linear(in_features=input_shape, out_features=input_shape * 3)
 
     def forward(self, x):
@@ -130,7 +127,8 @@ class MaskedMultiHeadAttention(nn.Module):
         )
 
         z = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(D)
-        z = z.masked_fill(self.mask == 0, float("-inf"))
+        mask = torch.tril(torch.ones(C, C, device=x.device)).view(1, 1, C, C)
+        z = z.masked_fill(mask == 0, float("-inf"))
         z = F.softmax(z, dim=-1)
         z = torch.matmul(z, v)
         return z.transpose(1, 2).reshape(N, C, D)
@@ -144,9 +142,9 @@ class DecoderBlock(nn.Module):
             --------------------------------                   --------------
     """
 
-    def __init__(self, n_heads: int, input_shape: int, seq_length: int):
+    def __init__(self, n_heads: int, input_shape: int):
         super().__init__()
-        self.attention = MaskedMultiHeadAttention(input_shape, n_heads, seq_length)
+        self.attention = MaskedMultiHeadAttention(input_shape, n_heads)
         self.norm_01 = nn.LayerNorm(normalized_shape=input_shape)
         self.linear = nn.Linear(in_features=input_shape, out_features=input_shape)
         self.norm_02 = nn.LayerNorm(normalized_shape=input_shape)
@@ -171,7 +169,7 @@ class EmbeddingAndPositionalEncoding(nn.Module):
         )
 
     def forward(self, x):
-        pos = torch.arange(0, x.shape[1]).unsqueeze(0)
+        pos = torch.arange(0, x.shape[1], device=x.device).unsqueeze(0)
         tok_emb = self.text_embedding(x)
         pos_emb = self.position_embedding(pos)
         return tok_emb + pos_emb
@@ -184,10 +182,10 @@ class TransformerDecoder(nn.Module):
         n_blocks: the number of decoder blocks in the transformer decoder
     """
 
-    def __init__(self, n_blocks: int, n_heads: int, input_shape: int, seq_length: int):
+    def __init__(self, n_blocks: int, n_heads: int, input_shape: int):
         super().__init__()
         self.blocks = nn.Sequential(
-            *[DecoderBlock(n_heads, input_shape, seq_length) for _ in range(n_blocks)]
+            *[DecoderBlock(n_heads, input_shape) for _ in range(n_blocks)]
         )
 
     def forward(self, x):
@@ -208,7 +206,6 @@ class Transformer(nn.Module):
             n_blocks=n_blocks,
             n_heads=n_heads,
             input_shape=embedding_dim,
-            seq_length=sequence_length,
         )
         self.linear = nn.Linear(in_features=embedding_dim, out_features=vocab_size)
 
@@ -224,10 +221,8 @@ if __name__ == "__main__":
         input_shape = 8
         seq_length = 3
         x = torch.ones(1, seq_length, input_shape)
-        mha = TransformerDecoder(
-            n_blocks=12, n_heads=2, input_shape=input_shape, seq_length=seq_length
-        )
-        abc = mha(x)
+        mha = TransformerDecoder(n_blocks=12, n_heads=n_heads, input_shape=input_shape)
+        return mha(x)
 
     def test_Transformer():
         model = Transformer(
