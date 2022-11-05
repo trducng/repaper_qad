@@ -1,3 +1,5 @@
+import random
+
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -18,7 +20,10 @@ class BookDataset(Dataset):
         return len(self.data["train"])
 
     def __getitem__(self, idx):
-        x = self.tokenizer.encode(self.data["train"][idx]["text"].lower()).ids
+        x = self.tokenizer.encode(self.data["train"][idx]["text"].lower()).ids[:512]
+        while len(x) <= 1:
+            new_idx = random.randrange(len(self.data["train"]))
+            x = self.tokenizer.encode(self.data["train"][new_idx]["text"].lower()).ids[:512]
         return x[:-1], x[1:]
 
 
@@ -77,7 +82,10 @@ for epoch in range(epochs):
             if idx % 1000 == 0:
                 tqdm.write(f"Loss: {loss.item()} - Epoch {epoch}")
                 torch.cuda.empty_cache()
+            if idx % 10000 == 0:
+                torch.save(model.state_dict(), f"downloads/gpt1_{epoch}.pth")
         except Exception as e:
-            tqdm.write(e, x.shape)
+            torch.cuda.empty_cache()
+            tqdm.write(f"{e}: {x.shape}")
     torch.save(model.state_dict(), f"downloads/gpt1_{epoch}.pth")
 

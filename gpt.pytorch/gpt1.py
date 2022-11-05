@@ -215,27 +215,64 @@ class Transformer(nn.Module):
         return self.linear(z)
 
 
+def generate(checkpoint, text: str, new_tokens: int=100, n_samples: int=20):
+    """Generate from checkpoint"""
+    text = text.lower()
+
+    from hug_tokenizers import get_bookcorpus_tokenizer
+    tokenizer = get_bookcorpus_tokenizer("downloads/tokenizer_bookcorpus.json")
+
+    model = Transformer(
+        vocab_size=tokenizer.get_vocab_size(),
+        embedding_dim=768,
+        sequence_length=512,
+        n_blocks=12,
+        n_heads=12,
+    )
+    model.load_state_dict(torch.load(checkpoint))
+    model.eval()
+
+    tokens = tokenizer.encode(text).ids
+    results = []
+    for _ in range(n_samples):
+        result = []
+        input_ = torch.LongTensor(tokens).unsqueeze(0)
+        while len(result) < new_tokens:
+            pred = model(input_)
+            result.append(pred[0,-1,:].argmax().item())
+            input_ = torch.LongTensor(tokens + result).unsqueeze(0)
+        results.append(tokenizer.decode(tokens + result))
+
+    for idx, result in enumerate(results):
+        print(idx, result)
+
+    return results
+
+
+
 if __name__ == "__main__":
-    def test_TransformerDecoder():
-        n_heads = 2
-        input_shape = 8
-        seq_length = 3
-        x = torch.ones(1, seq_length, input_shape)
-        mha = TransformerDecoder(n_blocks=12, n_heads=n_heads, input_shape=input_shape)
-        return mha(x)
+    # def test_TransformerDecoder():
+    #     n_heads = 2
+    #     input_shape = 8
+    #     seq_length = 3
+    #     x = torch.ones(1, seq_length, input_shape)
+    #     mha = TransformerDecoder(n_blocks=12, n_heads=n_heads, input_shape=input_shape)
+    #     return mha(x)
 
-    def test_Transformer():
-        model = Transformer(
-            vocab_size=1000,
-            embedding_dim=192,
-            sequence_length=1024,
-            n_blocks=6,
-            n_heads=6,
-        )
-        input_ = torch.zeros(1, 1024, dtype=torch.int64)
-        input_[0,0] = 10
-        input_[0,2] = 120
-        output = model(input_)
-        return output
+    # def test_Transformer():
+    #     model = Transformer(
+    #         vocab_size=1000,
+    #         embedding_dim=192,
+    #         sequence_length=1024,
+    #         n_blocks=6,
+    #         n_heads=6,
+    #     )
+    #     input_ = torch.zeros(1, 1024, dtype=torch.int64)
+    #     input_[0,0] = 10
+    #     input_[0,2] = 120
+    #     output = model(input_)
+    #     return output
 
-    output = test_Transformer()
+    # output = test_Transformer()
+    text = "the meaning of life is".lower()
+    generate(checkpoint="downloads/gpt1_0.pth", text=text, n_samples=1)
