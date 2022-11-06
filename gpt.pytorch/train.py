@@ -24,6 +24,7 @@ class BookDataset(Dataset):
         while len(x) <= 1:
             new_idx = random.randrange(len(self.data["train"]))
             x = self.tokenizer.encode(self.data["train"][new_idx]["text"].lower()).ids[:512]
+        x += [self.tokenizer.token_to_id("[PAD]")] * (512 - len(x))
         return x[:-1], x[1:]
 
 
