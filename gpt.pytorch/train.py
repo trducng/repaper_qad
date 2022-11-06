@@ -56,10 +56,10 @@ dataloader = DataLoader(
 
 model = Transformer(
     vocab_size=dataset.tokenizer.get_vocab_size(),
-    embedding_dim=768,
+    embedding_dim=192,
     sequence_length=512,
-    n_blocks=12,
-    n_heads=12,
+    n_blocks=6,
+    n_heads=6,
 )
 model.train()
 model = model.cuda()
@@ -83,9 +83,9 @@ for epoch in range(epochs):
                 tqdm.write(f"Loss: {loss.item()} - Epoch {epoch}")
                 torch.cuda.empty_cache()
             if idx % 10000 == 0:
-                torch.save(model.state_dict(), f"downloads/gpt1_{epoch}.pth")
+                torch.save(model.state_dict(), f"downloads/temp_gpt1_{epoch}.pth")
         except Exception as e:
             torch.cuda.empty_cache()
             tqdm.write(f"{e}: {x.shape}")
-    torch.save(model.state_dict(), f"downloads/gpt1_{epoch}.pth")
+    torch.save(model.state_dict(), f"downloads/temp_gpt1_{epoch}.pth")
 
