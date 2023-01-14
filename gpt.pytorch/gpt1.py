@@ -152,7 +152,7 @@ class DecoderBlock(nn.Module):
     def forward(self, x):
         z = self.attention(x)
         x = self.norm_01(x + z)
-        z = self.linear(x)
+        z = F.gelu(self.linear(x), approximate="tanh")
         return self.norm_02(x + z)
 
 

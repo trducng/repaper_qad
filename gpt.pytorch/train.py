@@ -84,9 +84,9 @@ for epoch in range(epochs):
                 tqdm.write(f"Loss: {loss.item()} - Epoch {epoch}")
                 torch.cuda.empty_cache()
             if idx % 10000 == 0:
-                torch.save(model.state_dict(), f"downloads/temp_gpt1_{epoch}.pth")
+                torch.save(model.state_dict(), f"downloads/gelu_gpt1_{epoch}.pth")
         except Exception as e:
             torch.cuda.empty_cache()
             tqdm.write(f"{e}: {x.shape}")
-    torch.save(model.state_dict(), f"downloads/temp_gpt1_{epoch}.pth")
+    torch.save(model.state_dict(), f"downloads/gelu_gpt1_{epoch}.pth")
 
