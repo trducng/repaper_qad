@@ -224,11 +224,18 @@ def generate(checkpoint, text: str, new_tokens: int=100, n_samples: int=20):
 
     model = Transformer(
         vocab_size=tokenizer.get_vocab_size(),
-        embedding_dim=768,
+        embedding_dim=192,
         sequence_length=512,
-        n_blocks=12,
-        n_heads=12,
+        n_blocks=6,
+        n_heads=6,
     )
+    # model = Transformer(
+    #     vocab_size=tokenizer.get_vocab_size(),
+    #     embedding_dim=768,
+    #     sequence_length=512,
+    #     n_blocks=12,
+    #     n_heads=12,
+    # )
     model.load_state_dict(torch.load(checkpoint))
     model.eval()
 
@@ -238,8 +245,12 @@ def generate(checkpoint, text: str, new_tokens: int=100, n_samples: int=20):
         result = []
         input_ = torch.LongTensor(tokens).unsqueeze(0)
         while len(result) < new_tokens:
+            # pred = model(input_)
+            # result.append(pred[0,-1,:].argmax().item())
+            # input_ = torch.LongTensor(tokens + result).unsqueeze(0)
             pred = model(input_)
-            result.append(pred[0,-1,:].argmax().item())
+            probs = F.softmax(pred, dim=-1)[:,-1,:]
+            result.append(torch.multinomial(probs, num_samples=1).item())
             input_ = torch.LongTensor(tokens + result).unsqueeze(0)
         results.append(tokenizer.decode(tokens + result))
 
@@ -275,4 +286,4 @@ if __name__ == "__main__":
 
     # output = test_Transformer()
     text = "the meaning of life is".lower()
-    generate(checkpoint="downloads/gpt1_0.pth", text=text, n_samples=1)
+    generate(checkpoint="downloads/temp_gpt1_0.pth", text=text, n_samples=2)
