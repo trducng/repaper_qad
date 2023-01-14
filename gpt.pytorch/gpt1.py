@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import bitsandbytes as bnb
 
 
 class Attention(nn.Module):
@@ -20,9 +21,9 @@ class Attention(nn.Module):
         self.hidden_shape = hidden_shape
         self.value_shape = value_shape
 
-        self.q = nn.Linear(in_features=input_shape, out_features=hidden_shape)
-        self.k = nn.Linear(in_features=input_shape, out_features=hidden_shape)
-        self.v = nn.Linear(in_features=input_shape, out_features=value_shape)
+        self.q = bnb.nn.Linear8bitLt(input_shape, hidden_shape, threshold=6.0)
+        self.k = bnb.nn.Linear8bitLt(input_shape, hidden_shape, threshold=6.0)
+        self.v = bnb.nn.Linear8bitLt(input_shape, value_shape, threshold=6.0)
 
     def forward(self, x):
         """Perform forward pass
@@ -100,7 +101,7 @@ class MaskedMultiHeadAttention(nn.Module):
         super().__init__()
         self.input_shape = input_shape
         self.n_heads = n_heads
-        self.kqv = nn.Linear(in_features=input_shape, out_features=input_shape * 3)
+        self.kqv = bnb.nn.Linear8bitLt(input_shape, input_shape * 3, threshold=6.0).to(torch.float16)
 
     def forward(self, x):
         """Forward through MultiHeadAttention block
@@ -112,7 +113,7 @@ class MaskedMultiHeadAttention(nn.Module):
             the output with shape (batch size x sequence length x in dims)
         """
         N, C, D = x.shape
-        z = self.kqv(x)
+        z = self.kqv(x.to(torch.float16))
 
         k = z[:, :, :D].reshape(N, C, self.n_heads, D // self.n_heads).transpose(1, 2)
         q = (
@@ -146,13 +147,13 @@ class DecoderBlock(nn.Module):
         super().__init__()
         self.attention = MaskedMultiHeadAttention(input_shape, n_heads)
         self.norm_01 = nn.LayerNorm(normalized_shape=input_shape)
-        self.linear = nn.Linear(in_features=input_shape, out_features=input_shape)
+        self.linear = bnb.nn.Linear8bitLt(input_shape, input_shape, threshold=6.0).to(torch.float16)
         self.norm_02 = nn.LayerNorm(normalized_shape=input_shape)
 
     def forward(self, x):
         z = self.attention(x)
         x = self.norm_01(x + z)
-        z = self.linear(x)
+        z = self.linear(x.to(torch.float16))
         return self.norm_02(x + z)
 
 
@@ -161,10 +162,10 @@ class EmbeddingAndPositionalEncoding(nn.Module):
 
     def __init__(self, num_embeddings, embedding_dim, sequence_length):
         super(EmbeddingAndPositionalEncoding, self).__init__()
-        self.text_embedding = nn.Embedding(
+        self.text_embedding = bnb.nn.StableEmbedding(
             num_embeddings=num_embeddings, embedding_dim=embedding_dim
         )
-        self.position_embedding = nn.Embedding(
+        self.position_embedding = bnb.nn.StableEmbedding(
             num_embeddings=sequence_length, embedding_dim=embedding_dim
         )
 
@@ -207,12 +208,12 @@ class Transformer(nn.Module):
             n_heads=n_heads,
             input_shape=embedding_dim,
         )
-        self.linear = nn.Linear(in_features=embedding_dim, out_features=vocab_size)
+        self.linear = bnb.nn.Linear8bitLt(embedding_dim, vocab_size, threshold=6.0).to(torch.float16)
 
     def forward(self, x):
         z = self.embedding(x)
         z = self.transformer(z)
-        return self.linear(z)
+        return self.linear(z.to(torch.float16))
 
 
 def generate(checkpoint, text: str, new_tokens: int=100, n_samples: int=20):

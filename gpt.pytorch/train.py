@@ -1,8 +1,12 @@
+import sys
+import traceback
 import random
+from pdb import Pdb
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import bitsandbytes as bnb
 from datasets import load_dataset
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
@@ -65,9 +69,10 @@ model = Transformer(
 model.train()
 model = model.cuda()
 
-optimizer = optim.Adam(model.parameters(), lr=2.5e-4, weight_decay=0.01)
+optimizer = bnb.optim.Adam8bit(model.parameters(), lr=2.5e-4, weight_decay=0.01)
 epochs = 100
 
+pdb = Pdb()
 for epoch in range(epochs):
     print(f"Epoch: {epoch}")
     pbar = tqdm(dataloader, total=len(dataloader))
@@ -84,9 +89,13 @@ for epoch in range(epochs):
                 tqdm.write(f"Loss: {loss.item()} - Epoch {epoch}")
                 torch.cuda.empty_cache()
             if idx % 10000 == 0:
-                torch.save(model.state_dict(), f"downloads/temp_gpt1_{epoch}.pth")
+                torch.save(model.state_dict(), f"downloads/_temp_gpt1_{epoch}.pth")
         except Exception as e:
             torch.cuda.empty_cache()
             tqdm.write(f"{e}: {x.shape}")
-    torch.save(model.state_dict(), f"downloads/temp_gpt1_{epoch}.pth")
-
+            traceback.print_exc()
+            print("Enter debugging:")
+            t = sys.exc_info()[2]
+            pdb.interaction(None, t)
+            print("hehe")
+    torch.save(model.state_dict(), f"downloads/_temp_gpt1_{epoch}.pth")
