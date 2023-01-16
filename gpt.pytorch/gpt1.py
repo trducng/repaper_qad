@@ -100,6 +100,7 @@ class MaskedMultiHeadAttention(nn.Module):
         super().__init__()
         self.input_shape = input_shape
         self.n_heads = n_heads
+        self.drop_attn = nn.Dropout(p=0.1)
         self.kqv = nn.Linear(in_features=input_shape, out_features=input_shape * 3)
 
     def forward(self, x):
@@ -130,6 +131,7 @@ class MaskedMultiHeadAttention(nn.Module):
         mask = torch.tril(torch.ones(C, C, device=x.device)).view(1, 1, C, C)
         z = z.masked_fill(mask == 0, float("-inf"))
         z = F.softmax(z, dim=-1)
+        z = self.drop_attn(z)
         z = torch.matmul(z, v)
         return z.transpose(1, 2).reshape(N, C, D)
 
@@ -150,9 +152,9 @@ class DecoderBlock(nn.Module):
         self.norm_02 = nn.LayerNorm(normalized_shape=input_shape)
 
     def forward(self, x):
-        z = self.attention(x)
+        z = F.dropout(self.attention(x), p=0.1, training=self.training)
         x = self.norm_01(x + z)
-        z = F.gelu(self.linear(x), approximate="tanh")
+        z = F.dropout(F.gelu(self.linear(x), approximate="tanh"), p=0.1, training=self.training)
         return self.norm_02(x + z)
 
 
@@ -208,12 +210,25 @@ class Transformer(nn.Module):
             input_shape=embedding_dim,
         )
         self.linear = nn.Linear(in_features=embedding_dim, out_features=vocab_size)
+        self.drop_emb = nn.Dropout(p=0.1)
+        self.apply(self._init_weights)
 
     def forward(self, x):
         z = self.embedding(x)
+        z = self.drop_emb(z)
         z = self.transformer(z)
         return self.linear(z)
 
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+        elif isinstance(module, nn.LayerNorm):
+            module.weight.data.fill_(1.0)
+            module.bias.data.zero_()
 
 def generate(checkpoint, text: str, new_tokens: int=100, n_samples: int=20):
     """Generate from checkpoint"""
@@ -285,5 +300,5 @@ if __name__ == "__main__":
     #     return output
 
     # output = test_Transformer()
-    text = "the meaning of life is".lower()
-    generate(checkpoint="downloads/temp_gpt1_0.pth", text=text, n_samples=2)
+    text = "hello, my name is harry".lower()
+    generate(checkpoint="downloads/gelu_gpt1_0.pth", text=text, n_samples=2)
