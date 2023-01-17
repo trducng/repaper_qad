@@ -1,0 +1,15 @@
+# @package _global_
+pretrained_model:
+  _target_: masked_autoencoding.src.models.unet.UNet
+
+  in_chns: 3
+  out_chns: 3
+  init_features: 24
+  octaves: 2
+
+experiment:
+  pretrained_model_path:
+    mnist: 'PATH/TO/nca_best.pth.tar'  # MNIST
+    fashionmnist: 'PATH/TO/nca_best.pth.tar'  # FashionMNIST
+    cifar10: 'PATH/TO/nca_best.pth.tar'  # CIFAR10
+    tinyimagenet: 'PATH/TO/nca_best.pth.tar'  # TinyImageNet

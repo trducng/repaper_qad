@@ -1,0 +1,34 @@
+# @package _global_
+pretrained_model:
+  _target_: masked_autoencoding.src.models.vitca.ViTCA
+
+  localize_attn: true  # Localize transformer attn in a neighbourhood surrounding each cell
+  localized_attn_neighbourhood: [3, 3]
+
+  patch_size: 1  # Spatial patch size each cell overlaps
+  overlapping_patches: false
+  pe_method: vit_handcrafted  # Type of positional encoding/embedding for transformer. 'vit_handcrafted', 'nerf_handcrafted', 'learned', or null for no positional encoding
+  nerf_pe_basis: raw_xy  # Choices: raw_xy, sin_cos, sin_cos_xy, sinc
+  nerf_pe_max_freq: 5  # Max frequency of positional encoding. Measured as 2^L-1 where L = pe_max_freq. L = 5 -> 32x32.
+
+  octaves: 0
+
+  depth: 1
+  heads: 4
+  mlp_dim: 256
+  dropout: 0.0
+  cell_init: 'constant'  # 'constant' or 'random'
+  cell_in_chns: 3
+  cell_out_chns: 3
+  cell_hidden_chns: 32
+  embed_cells: true
+  embed_dim: 64
+  embed_dropout: 0.0
+
+
+experiment:
+  pretrained_model_path:
+    mnist: 'PATH/TO/nca_best.pth.tar'  # MNIST
+    fashionmnist: 'PATH/TO/nca_best.pth.tar'  # FashionMNIST
+    cifar10: 'PATH/TO/nca_best.pth.tar'  # CIFAR10
+    tinyimagenet: 'PATH/TO/nca_best.pth.tar'  # TinyImageNet

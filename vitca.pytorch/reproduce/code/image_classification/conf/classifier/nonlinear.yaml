@@ -1,0 +1,5 @@
+_target_: image_classification.src.classifiers.nonlinear.NonLinear
+
+in_chns: 3
+hidden_chns: 32
+num_classes: 10

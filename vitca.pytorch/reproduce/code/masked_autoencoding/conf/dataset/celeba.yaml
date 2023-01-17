@@ -1,0 +1,2 @@
+name: CelebA
+dataset_root: /home/john/repaper_qad/vitca.pytorch/reproduce/code/downloads/datasets

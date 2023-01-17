@@ -1,0 +1,4 @@
+_target_: image_classification.src.classifiers.linear.Linear
+
+in_chns: 3
+num_classes: 10

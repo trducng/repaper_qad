@@ -1,3 +1,4 @@
+Session.vim
 .DS_Store
 .ipynb_checkpoints
 node_modules
@@ -13,3 +14,4 @@ __pycache__
 datasets
 logs
 images
+downloads

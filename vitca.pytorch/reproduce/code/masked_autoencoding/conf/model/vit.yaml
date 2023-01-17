@@ -1,0 +1,29 @@
+# @package _global_
+model:
+  _target_: masked_autoencoding.src.models.vit.ViT
+
+  patch_size: 1  # Spatial patch size each cell overlaps
+  pe_method: vit_handcrafted  # Type of positional encoding/embedding for transformer. 'vit_handcrafted', 'nerf_handcrafted', 'learned', or 'none'
+  nerf_pe_basis: sin_cos  # Choices: raw_xy, sin_cos, sinc
+  nerf_pe_max_freq: 5  # Max frequency of positional encoding. Measured as 2^L-1 where L = pe_max_freq.
+
+  depth: 1
+  heads: 4
+  mlp_dim: 64
+  dropout: 0.0
+  in_chns: 3
+  out_chns: 3
+  embed_input: true
+  embed_dim: 128
+  embed_dropout: 0.0
+
+  preprocess_fn: null
+
+experiment:
+  pretrained_model_path:
+    landcoverrep: 'FOLDER/TO/nca_best.pth.tar'
+    mnist: 'FOLDER/TO/nca_best.pth.tar'
+    celeba: 'FOLDER/TO/nca_best.pth.tar'
+    fashionmnist: 'FOLDER/TO/nca_best.pth.tar'
+    cifar10: 'FOLDER/TO/nca_best.pth.tar'
+    tinyimagenet: 'FOLDER/TO/nca_best.pth.tar'

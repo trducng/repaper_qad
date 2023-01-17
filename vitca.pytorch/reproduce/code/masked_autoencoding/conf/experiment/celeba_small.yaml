@@ -1,0 +1,37 @@
+# @package _global_
+defaults:
+  - override /dataset: celeba
+  - override /model: vitca
+
+experiment:
+  name: celeba_small
+
+  batch_size:
+    train: 8
+    val: 8
+
+  input_size:
+    train: [32, 32]
+    val: [32, 32]
+
+  val_frequency: 1000
+
+  iter:
+    train:
+      ca:
+        min: 8
+        max: 32
+
+  masking:
+    train:
+      type: dropout
+      max_prob: 0.75
+      max_patch_shape: [4, 4]
+      prob_stages: 3
+      patch_shape_stages: 3
+    val:
+      type: dropout
+      max_prob: 0.75
+      max_patch_shape: [4, 4]
+      prob_stages: 3
+      patch_shape_stages: 3

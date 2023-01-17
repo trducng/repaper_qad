@@ -1,0 +1,41 @@
+# @package _global_
+defaults:
+  - override /dataset: fashionmnist
+  - override /model: vitca
+
+experiment:
+  name: fashionmnist
+
+  batch_size:
+    train: 32
+    val: 32
+
+  input_size:
+    train: [32, 32]
+    val: [32, 32]
+
+  val_frequency: 1000
+
+  iter:
+    train:
+      ca:
+        min: 8
+        max: 32
+
+  masking:
+    train:
+      type: noise
+      max_prob: 0.75
+      max_patch_shape: [4, 4]
+      prob_stages: 3
+      patch_shape_stages: 3
+    val:
+      type: noise
+      max_prob: 0.75
+      max_patch_shape: [4, 4]
+      prob_stages: 3
+      patch_shape_stages: 3
+
+model:
+  cell_in_chns: 1
+  cell_out_chns: 1

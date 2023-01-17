@@ -1,0 +1,64 @@
+defaults:
+  - _self_
+  - dataset: landcoverrep
+  - model: vitca
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+use_pretrained_cfg: true
+use_pretrained_size: true
+save_pca_data: false
+pca_components: 3
+no_noise: false
+
+experiment:
+  name: ${dataset.name}
+  device: cuda:0
+  save_root: SAVE_ROOT
+  num_workers: 2
+  deterministic: true
+  pretrained_model_path: 'FOLDER/TO/nca_best.pth.tar'  # ViTCA (LandCoverRep)
+
+  log_frequency: 11
+  save_frequency: 10
+
+  trainer:
+    loss:
+      _target_: masked_autoencoding.src.losses.CALoss
+      # _target_: masked_autoencoding.src.losses.Loss  # for non-CA models
+      rec_factor: 1e2
+      overflow_factor: 1e2
+    checkpointing:
+      enabled: false
+
+  iter:
+    test:
+      ca:
+        value: 64
+        update_rate: 0.5
+
+  batch_size:
+    test: 32
+
+  input_size:
+    test: [32, 32]
+
+  attn_size:
+    test: [3, 3]
+
+  random_seed: 1
+
+  masking:
+    test:
+      type: dropout
+      max_prob: 0.75
+      max_patch_shape: [4, 4]
+      prob_stages: 3
+      patch_shape_stages: 3
+
+hydra:
+  run:
+    dir: ${experiment.save_root}/${experiment.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ${experiment.save_root}/${experiment.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}_${hydra.job.id}

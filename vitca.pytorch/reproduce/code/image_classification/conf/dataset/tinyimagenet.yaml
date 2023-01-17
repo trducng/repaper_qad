@@ -1,0 +1,2 @@
+name: TinyImageNet
+dataset_root: /PATH/TO/DATASET
