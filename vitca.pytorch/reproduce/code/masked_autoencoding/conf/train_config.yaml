@@ -9,7 +9,7 @@ experiment:
   name: landcoverrep_default
   device: cuda:0
   save_root: logs
-  num_workers: 2
+  num_workers: 4
 
   trainer:
     opt:
