@@ -1,21 +1,21 @@
 # @package _global_
 defaults:
-  - override /dataset: celeba
+  - override /dataset: tinyimagenet
   - override /model: vitca
 
 experiment:
-  name: celeba_small
+  name: tinyimagenet
 
   batch_size:
     train: 8
-    val: 8
+    val: 32
 
   input_size:
-    train: [32, 32]
-    val: [32, 32]
+    train: [64, 64]
+    val: [64, 64]
 
-  val_frequency: 50001
-  save_frequency: 10000
+  val_frequency: 1000
+  log_frequency: 44
 
   iter:
     train:

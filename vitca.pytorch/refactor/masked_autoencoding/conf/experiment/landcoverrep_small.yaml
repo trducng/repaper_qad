@@ -1,21 +1,20 @@
 # @package _global_
 defaults:
-  - override /dataset: celeba
+  - override /dataset: landcoverrep
   - override /model: vitca
 
 experiment:
-  name: celeba_small
+  name: landcoverrep_small
 
   batch_size:
-    train: 8
-    val: 8
+    train: 32
+    val: 32
 
   input_size:
     train: [32, 32]
     val: [32, 32]
 
-  val_frequency: 50001
-  save_frequency: 10000
+  val_frequency: 1000
 
   iter:
     train:

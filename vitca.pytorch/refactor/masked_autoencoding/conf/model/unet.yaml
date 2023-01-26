@@ -1,0 +1,17 @@
+# @package _global_
+model:
+  _target_: masked_autoencoding.src.models.unet.UNet
+
+  in_chns: 3
+  out_chns: 3
+  init_features: 24
+  octaves: 2
+
+experiment:
+  pretrained_model_path:
+    landcoverrep: 'FOLDER/TO/nca_best.pth.tar'
+    mnist: 'FOLDER/TO/nca_best.pth.tar'
+    celeba: 'FOLDER/TO/nca_best.pth.tar'
+    fashionmnist: 'FOLDER/TO/nca_best.pth.tar'
+    cifar10: 'FOLDER/TO/nca_best.pth.tar'
+    tinyimagenet: 'FOLDER/TO/nca_best.pth.tar'

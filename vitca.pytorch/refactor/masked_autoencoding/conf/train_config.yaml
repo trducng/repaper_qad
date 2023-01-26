@@ -1,0 +1,90 @@
+defaults:
+  - _self_
+  - dataset: landcoverrep
+  - model: vitca
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+experiment:
+  name: landcoverrep_default
+  device: cuda:0
+  save_root: logs
+  num_workers: 4
+
+  trainer:
+    opt:
+      _target_: torch.optim.AdamW
+      lr: 1e-3
+    lr_sched:
+      _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+      T_max: ${experiment.iter.train.total}
+    loss:
+      _target_: masked_autoencoding.src.losses.CALoss
+      # _target_: masked_autoencoding.src.losses.Loss  # for non-CA models
+      rec_factor: 1e2
+      overflow_factor: 1e2
+    checkpointing:
+      enabled: false
+
+  iter:
+    train:
+      start: 1
+      total: 100000
+      ca:
+        min: 8
+        max: 32
+        update_rate: 0.5
+    val:
+      ca:
+        value: 64
+        update_rate: 0.5
+
+  batch_size:
+    train: 32
+    val: 32
+
+  pool_size: 1024
+  resume_from_latest: true
+
+  sample_with_replacement: false
+
+  input_size:
+    train: [32, 32]
+    val: [32, 32]
+
+  attn_size:
+    train: [3, 3]
+    val: [3, 3]
+
+  log_frequency: 11
+  save_frequency: 5000
+  val_frequency: 1000
+
+  normalize_gradients: true
+
+  random_seed: 1
+
+  masking:
+    train:
+      type: dropout
+      max_prob: 0.75
+      max_patch_shape: [10, 10]
+      prob_stages: 3
+      patch_shape_stages: 3
+      schedule_start: 500
+      schedule_end: 10000
+    val:
+      type: dropout
+      max_prob: 0.75
+      max_patch_shape: [10, 10]
+      prob_stages: 3
+      patch_shape_stages: 3
+
+wandb:
+  entity: ENTITY
+  project: PROJECT
+  run_id: null
+
+hydra:
+  run:
+    dir: ${experiment.save_root}/${experiment.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}

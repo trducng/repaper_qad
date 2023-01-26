@@ -1,21 +1,20 @@
 # @package _global_
 defaults:
-  - override /dataset: celeba
+  - override /dataset: fashionmnist
   - override /model: vitca
 
 experiment:
-  name: celeba_small
+  name: fashionmnist
 
   batch_size:
-    train: 8
-    val: 8
+    train: 32
+    val: 32
 
   input_size:
     train: [32, 32]
     val: [32, 32]
 
-  val_frequency: 50001
-  save_frequency: 10000
+  val_frequency: 1000
 
   iter:
     train:
@@ -25,14 +24,18 @@ experiment:
 
   masking:
     train:
-      type: dropout
+      type: noise
       max_prob: 0.75
       max_patch_shape: [4, 4]
       prob_stages: 3
       patch_shape_stages: 3
     val:
-      type: dropout
+      type: noise
       max_prob: 0.75
       max_patch_shape: [4, 4]
       prob_stages: 3
       patch_shape_stages: 3
+
+model:
+  cell_in_chns: 1
+  cell_out_chns: 1

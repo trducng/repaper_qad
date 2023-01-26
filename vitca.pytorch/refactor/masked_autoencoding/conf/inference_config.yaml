@@ -1,0 +1,94 @@
+defaults:
+  - _self_
+  - dataset: mnist
+  - model: vitca
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+use_pretrained_cfg: true
+use_pretrained_size: true
+viz_for_paper:
+  enabled: true
+  ca_iters_to_save: [1, 2, 8, 32, 2784]  # for convergence stability
+  # ca_iters_to_save: [64, 65, 96, 97, 738]  # for damage resilience
+  # ca_iters_to_save: [224, 464, 704, 944, 1184]  # for changing input
+  # ca_iters_to_save: [1, 12, 18, 24, 48]  # for varying update rate unetca
+  # ca_iters_to_save: [1, 8, 12, 16, 32]  # for varying update rate vitca
+  # ca_iters_to_save: [1, 2, 8, 32, 149]  # for spatial interpolation
+viz_attn_maps:
+  brighten_factor: 5.0  # might accidentally clip attn values, but it makes it easier to see
+  blend_with_output: false
+damage:
+  enabled: false
+  random:
+    enabled: false
+    rate: 0.05
+    start_at: 43  # start frame and stop frame are inclusive and exclusive, respectively
+    stop_at: 101
+  at_frames: [65, 97]
+switch_up:
+  enabled: false
+  frame_time: 30
+head_masking:
+  enabled: false
+  heads_to_mask: [0, 1, 2, 3]  # 0-indexed
+completely_mask_input: false
+custom_growth_rate: true
+fps: 30.0
+# fps: 8  # for varying update rate
+# frames: 300
+frames: 150  # for damage resilience
+# frames: 48  # for varying update rate
+speed_up:
+  enabled: true
+  start_at: 65  # start frame is inclusive, for convergence stability
+  # start_at: 131  # for damage resilience
+  factor: 32
+font_path: null
+
+experiment:
+  name: ${dataset.name}
+  device: cuda:0
+  save_root: logs
+  num_workers: 2
+  deterministic: true
+  pretrained_model_path: 'FOLDER/TO/nca_best.pth.tar'  # ViTCA (LandCoverRep)
+
+  iter:
+    inf:
+      total: 1  # how many iterations through dataset
+      ca:
+        value: 1  # only used when custom_growth_rate = true
+        # value: 8  # only used when custom_growth_rate = true, for changing input
+        update_rate: 0.5
+
+  trainer:
+    loss:
+      _target_: masked_autoencoding.src.losses.CALoss
+      # _target_: masked_autoencoding.src.losses.Loss  # for non-CA models
+      rec_factor: 1e2
+      overflow_factor: 1e2
+    checkpointing:
+      enabled: false
+
+  batch_size:
+    inf: 32
+
+  input_size:
+    inf: [32, 32]
+    # inf: [128, 128]  # for spatial interpolation
+
+  attn_size:
+    inf: [3, 3]
+
+  random_seed: 1
+
+  masking:
+    inf:
+      type: dropout
+      prob: 0.75
+      patch_shape: [4, 4]
+
+hydra:
+  run:
+    dir: ${experiment.save_root}/${experiment.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}

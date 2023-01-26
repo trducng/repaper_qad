@@ -1,0 +1,26 @@
+# @package _global_
+model:
+  _target_: masked_autoencoding.src.models.unetca.UNetCA
+
+  nca_mode: true  # true -> UNet's 3x3 convs are changed to 1x1 except the first
+
+  pe_method: null  # Type of positional encoding/embedding for transformer. 'vit_handcrafted', 'nerf_handcrafted', or null for no positional encoding
+  nerf_pe_basis: sin_cos_xy  # Choices: raw_xy, sin_cos, sin_cos_xy, sinc
+  nerf_pe_max_freq: 5  # Max frequency of positional encoding. Measured as 2^L-1 where L = pe_max_freq.
+
+  octaves: 2
+
+  cell_init: 'constant'  # 'constant' or 'random'
+  cell_in_chns: 3
+  cell_out_chns: 3
+  cell_hidden_chns: 32
+  init_features: 48
+
+experiment:
+  pretrained_model_path:
+    landcoverrep: 'FOLDER/TO/nca_best.pth.tar'
+    mnist: 'FOLDER/TO/nca_best.pth.tar'
+    celeba: 'FOLDER/TO/nca_best.pth.tar'
+    fashionmnist: 'FOLDER/TO/nca_best.pth.tar'
+    cifar10: 'FOLDER/TO/nca_best.pth.tar'
+    tinyimagenet: 'FOLDER/TO/nca_best.pth.tar'

@@ -15,14 +15,14 @@ model:
 
   depth: 1
   heads: 4
-  mlp_dim: 64
+  mlp_dim: 256
   dropout: 0.0
   cell_init: 'constant'  # 'constant' or 'random'
   cell_in_chns: 3
   cell_out_chns: 3
   cell_hidden_chns: 32
   embed_cells: true
-  embed_dim: 128
+  embed_dim: 64
   embed_dropout: 0.0
 
 
@@ -30,7 +30,7 @@ experiment:
   pretrained_model_path:
     landcoverrep: 'FOLDER/TO/nca_best.pth.tar'
     mnist: 'FOLDER/TO/nca_best.pth.tar'
-    celeba: '/home/john/repaper_qad/vitca.pytorch/reproduce/code/logs/celeba_small/2023-01-25/21-05-42/ckpt_100000.pth.tar'
+    celeba: 'FOLDER/TO/nca_best.pth.tar'
     fashionmnist: 'FOLDER/TO/nca_best.pth.tar'
     cifar10: 'FOLDER/TO/nca_best.pth.tar'
     tinyimagenet: 'FOLDER/TO/nca_best.pth.tar'

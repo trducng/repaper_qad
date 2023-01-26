@@ -1,0 +1,12 @@
+_target_: masked_autoencoding.src.models.tnca.TNCA
+
+perception_method: handcrafted  # or 'learned'
+pe_method: vit_handcrafted  # Type of positional encoding/embedding for transformer. 'vit_handcrafted', 'nerf_handcrafted', or null for no positional encoding
+nerf_pe_basis: sin_cos  # Choices: raw_xy, sin_cos, sin_cos_xy, sinc
+nerf_pe_max_freq: 5  # Max frequency of positional encoding. Measured as 2^L-1 where L = pe_max_freq.
+
+cell_init: 'constant'  # 'constant' or 'random'
+cell_in_chns: 3
+cell_out_chns: 3
+cell_hidden_chns: 32
+embed_dim: 128
