@@ -104,6 +104,8 @@ class Train(TaskFunction):
                 # Compute losses
                 losses = loss(cfg, model, results, phase="train")
                 total_loss = losses["rec_loss"] + losses["overflow_loss"]
+                if i % 200 == 0:
+                    LOGGER.info(f"{i}: {total_loss.item()}, {losses}")
 
             # Backward pass
             opt.zero_grad()
@@ -131,8 +133,6 @@ class Train(TaskFunction):
 
             if i % cfg.experiment.save_frequency == 0:
                 model_and_trainer.save_checkpoint(cfg, i, save)
-            if i == 2000:
-                break
 
         LOGGER.info(f"Last: {time.time() - start}")
         return model_and_trainer.best_avg_val_rec_err
