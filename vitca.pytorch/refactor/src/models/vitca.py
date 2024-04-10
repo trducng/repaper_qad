@@ -5,7 +5,7 @@ import torch
 from einops import rearrange
 from einops.layers.torch import Rearrange
 
-from masked_autoencoding.src.utils import (
+from src.utils import (
     xy_meshgrid,
     vit_positional_encoding,
     nerf_positional_encoding,

@@ -1,17 +1,15 @@
 import torch
-from torchvision.utils import make_grid
 from hydra.utils import instantiate
 from omegaconf import OmegaConf, open_dict
 import __init__
-from masked_autoencoding.src.utils import masking_schedule, py2pil
-from masked_autoencoding.src.datasets import random_mask
+from src.utils import masking_schedule
+from src.datasets import random_mask
 import logging
 import re
 import dill  # so that torch.save can save lambda functions
 import numpy as np
 import random
 from pathlib import Path
-import wandb
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +28,7 @@ class ModelAndTrainer(torch.nn.Module):
                     OmegaConf.update(
                         cfg.experiment.trainer.loss,
                         "_target_",
-                        "masked_autoencoding.src.losses.Loss",
+                        "src.losses.Loss",
                     )
 
             self.loss = instantiate(cfg.experiment.trainer.loss).to(device)
@@ -48,7 +46,7 @@ class ModelAndTrainer(torch.nn.Module):
                     OmegaConf.update(
                         cfg.experiment.trainer.loss,
                         "_target_",
-                        "masked_autoencoding.src.losses.Loss",
+                        "src.losses.Loss",
                     )
 
             self.loss = instantiate(cfg.experiment.trainer.loss).to(device)
@@ -60,7 +58,7 @@ class ModelAndTrainer(torch.nn.Module):
                     OmegaConf.update(
                         cfg.experiment.trainer.loss,
                         "_target_",
-                        "masked_autoencoding.src.losses.Loss",
+                        "src.losses.Loss",
                     )
 
             self.loss = instantiate(cfg.experiment.trainer.loss).to(device)
@@ -83,7 +81,7 @@ class ModelAndTrainer(torch.nn.Module):
         self.best_avg_val_rec_err = 1e8
 
     def model_class(self, cfg, device, phase="train"):
-        if cfg.model._target_ == "masked_autoencoding.src.models.vitca.ViTCA":
+        if cfg.model._target_ == "src.models.vitca.ViTCA":
             if phase == "train":
                 input_size = list(cfg.experiment.input_size.train)
             elif phase == "test":
@@ -102,7 +100,7 @@ class ModelAndTrainer(torch.nn.Module):
             self.x_pool = []
             self.y_pool = []
             self.z_pool = []
-        elif cfg.model._target_ == "masked_autoencoding.src.models.vitca_dynattn.ViTCA":
+        elif cfg.model._target_ == "src.models.vitca_dynattn.ViTCA":
             if phase == "train":
                 input_size = list(cfg.experiment.input_size.train)
             elif phase == "test":
@@ -121,7 +119,7 @@ class ModelAndTrainer(torch.nn.Module):
             self.x_pool = []
             self.y_pool = []
             self.z_pool = []
-        elif cfg.model._target_ == "masked_autoencoding.src.models.vitca_deq.ViTCA":
+        elif cfg.model._target_ == "src.models.vitca_deq.ViTCA":
             if phase == "train":
                 input_size = list(cfg.experiment.input_size.train)
             elif phase == "test":
@@ -140,7 +138,7 @@ class ModelAndTrainer(torch.nn.Module):
             self.x_pool = []
             self.y_pool = []
             self.z_pool = []
-        elif cfg.model._target_ == "masked_autoencoding.src.models.vit.ViT":
+        elif cfg.model._target_ == "src.models.vit.ViT":
             if phase == "train":
                 input_size = list(cfg.experiment.input_size.train)
             elif phase == "test":
@@ -163,19 +161,19 @@ class ModelAndTrainer(torch.nn.Module):
             model = instantiate(cfg.model, num_patches=num_patches, device=device).to(
                 device
             )
-        elif cfg.model._target_ == "masked_autoencoding.src.models.tnca.TNCA":
+        elif cfg.model._target_ == "src.models.tnca.TNCA":
             model = instantiate(cfg.model, device=device).to(device)
 
             self.x_pool = []
             self.y_pool = []
             self.z_pool = []
-        elif cfg.model._target_ == "masked_autoencoding.src.models.unetca.UNetCA":
+        elif cfg.model._target_ == "src.models.unetca.UNetCA":
             model = instantiate(cfg.model, device=device).to(device)
 
             self.x_pool = []
             self.y_pool = []
             self.z_pool = []
-        elif cfg.model._target_ == "masked_autoencoding.src.models.unet.UNet":
+        elif cfg.model._target_ == "src.models.unet.UNet":
             # Replacing CA-based configs with non-CA equivalents
             if "cell_in_chns" in cfg.model and "cell_out_chns" in cfg.model:
                 with open_dict(cfg.model):
@@ -435,6 +433,7 @@ class ModelAndTrainer(torch.nn.Module):
 
         z_0 = self.model.seed(rgb_in=masked_x, sz=input_size)
 
+        import pdb; pdb.set_trace()
         # iterate nca
         z_T = self.model(
             z_0,

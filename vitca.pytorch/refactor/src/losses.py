@@ -4,7 +4,7 @@ from torchmetrics.functional import structural_similarity_index_measure as ssim
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 import __init__
-from masked_autoencoding.src.utils import mono_to_rgb
+from src.utils import mono_to_rgb
 
 
 class CALoss(torch.nn.Module):

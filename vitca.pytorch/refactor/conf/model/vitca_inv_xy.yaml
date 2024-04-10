@@ -14,21 +14,21 @@ model:
   octaves: 0
 
   depth: 1
-  heads: 32
-  mlp_dim: 64
+  heads: 4
+  mlp_dim: 256
   dropout: 0.0
   cell_init: 'constant'  # 'constant' or 'random'
   cell_in_chns: 3
   cell_out_chns: 3
   cell_hidden_chns: 32
   embed_cells: true
-  embed_dim: 128
+  embed_dim: 64
   embed_dropout: 0.0
 
 
 experiment:
   pretrained_model_path:
-    landcoverrep: 'FOLDER/TO/nca_best.pth.tar'
+    landcoverrep: '/home/john/repaper_qad/vitca.pytorch/refactor/logs/landcoverrep_small/2023-01-31/00-51-02/ckpt_100000.pth.tar'
     mnist: 'FOLDER/TO/nca_best.pth.tar'
     celeba: 'FOLDER/TO/nca_best.pth.tar'
     fashionmnist: 'FOLDER/TO/nca_best.pth.tar'

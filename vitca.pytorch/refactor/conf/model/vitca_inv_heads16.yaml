@@ -7,7 +7,7 @@ model:
 
   patch_size: 1  # Spatial patch size each cell overlaps
   overlapping_patches: false
-  pe_method: nerf_handcrafted  # Type of positional encoding/embedding for transformer. 'vit_handcrafted', 'nerf_handcrafted', 'learned', or null for no positional encoding
+  pe_method: vit_handcrafted  # Type of positional encoding/embedding for transformer. 'vit_handcrafted', 'nerf_handcrafted', 'learned', or null for no positional encoding
   nerf_pe_basis: raw_xy  # Choices: raw_xy, sin_cos, sin_cos_xy, sinc
   nerf_pe_max_freq: 5  # Max frequency of positional encoding. Measured as 2^L-1 where L = pe_max_freq. L = 5 -> 32x32.
 
@@ -28,7 +28,7 @@ model:
 
 experiment:
   pretrained_model_path:
-    landcoverrep: 'FOLDER/TO/nca_best.pth.tar'
+    landcoverrep: '/home/john/repaper_qad/vitca.pytorch/refactor/logs/landcoverrep_small/2023-01-30/09-05-55/ckpt_100000.pth.tar'
     mnist: 'FOLDER/TO/nca_best.pth.tar'
     celeba: 'FOLDER/TO/nca_best.pth.tar'
     fashionmnist: 'FOLDER/TO/nca_best.pth.tar'

@@ -28,7 +28,7 @@ model:
 
 experiment:
   pretrained_model_path:
-    landcoverrep: 'FOLDER/TO/nca_best.pth.tar'
+    landcoverrep: '/home/john/repaper_qad/vitca.pytorch/refactor/logs/landcoverrep_small/2023-01-29/14-13-58/ckpt_100000.pth.tar'
     mnist: 'FOLDER/TO/nca_best.pth.tar'
     celeba: 'FOLDER/TO/nca_best.pth.tar'
     fashionmnist: 'FOLDER/TO/nca_best.pth.tar'

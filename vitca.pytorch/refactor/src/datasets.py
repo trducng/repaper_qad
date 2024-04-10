@@ -61,12 +61,13 @@ class LandCoverRepDataset(Dataset):
     def __init__(self, root="data", download=False):
         root = self.root = os.path.expanduser(root)
         self._data_dir = self.initialize_data_dir(root, download)
-        self._tile_dir = os.path.join(self._data_dir, "tile_triplets")
+        # self._tile_dir = os.path.join(self._data_dir, "tile_triplets")
+        self._tile_dir = self._data_dir
 
-        self._metadata_fields = ["fileName", "landCover", "split", "splitStr"]
+        self._metadata_fields = ["file_name", "y", "land_cover", "split", "split_str"]
         self._metadata_array = pd.read_csv(os.path.join(self.data_dir, "metadata.csv"))
         self._metadata_map = {
-            "landCover": {
+            "land_cover": {
                 1: "Corn",
                 2: "Cotton",
                 3: "Rice",
@@ -135,10 +136,10 @@ class LandCoverRepDataset(Dataset):
         self._split_names = {"train": "Train", "val": "Validation", "test": "Test"}
         self._split_array = self._metadata_array["split"].values
 
-        self._filenames = self._metadata_array["fileName"].values
+        self._filenames = self._metadata_array["file_name"].values
 
         # y_array stores idx ids corresponding to land cover class.
-        self._y_array = torch.from_numpy(self._metadata_array["landCover"].values)
+        self._y_array = torch.from_numpy(self._metadata_array["y"].values)
         self._y_size = 1
 
         self._n_classes = NUM_CLASSES
@@ -799,11 +800,13 @@ def get_train_val_datasets(dataset_name, dataset_root, train_size, validation_si
         train_dataset = datasets.CIFAR10(
             root=dataset_root,
             train=True,
+            download=True,
             transform=T.Compose([T.ToTensor(), T.Resize(train_size, antialias=True)]),
         )
         validation_dataset = datasets.CIFAR10(
             root=dataset_root,
             train=False,
+            download=True,
             transform=T.Compose(
                 [T.ToTensor(), T.Resize(validation_size, antialias=True)]
             ),

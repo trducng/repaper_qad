@@ -19,8 +19,8 @@ experiment:
       _target_: torch.optim.lr_scheduler.CosineAnnealingLR
       T_max: ${experiment.iter.train.total}
     loss:
-      _target_: masked_autoencoding.src.losses.CALoss
-      # _target_: masked_autoencoding.src.losses.Loss  # for non-CA models
+      _target_: src.losses.CALoss
+      # _target_: src.losses.Loss  # for non-CA models
       rec_factor: 1e2
       overflow_factor: 1e2
     checkpointing:
