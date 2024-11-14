@@ -86,33 +86,50 @@ class CrossCoderV1(L.LightningModule):
         nn.init.uniform_(self.b_dec, -bound, bound)
 
 
-class CrossCoderOp(Op):
-    """Create the crosscoder"""
 
-    def __init__(self, crosscoder, layers: dict):
+class CrossCoderOp(Op):
+    """Create the crosscoder
+
+    Usage:
+        >> crosscoder = CrossCoderV1.load_from_checkpoint("path/to/checkpoint")
+        >> inspector.add_op(
+            ".",
+            CrossCoderOp(
+                crosscoder=crosscoder,
+                layers={"layer1": None, "layer2": None},
+                name="crosscoder",
+            )
+        )
+        >> output, state = inspector.run(tokens)
+        >> feat = state.crosscoder
+    """
+
+    def __init__(self, crosscoder, layers: dict, name="crosscoder"):
         super().__init__()
         self._crosscoder = crosscoder
         self._layers = layers
         self._ids = []
+        self._name = name
 
     def forward(self, inspector: Inspector, name, module, args, kwargs, output):
         hidden_acts = torch.stack(
-            [inspector.state.crosscoder_hidden_acts[name] for name in self._layers],
+            [inspector.state.crosscoder_hidden_acts[name].squeeze() for name in self._layers],
             dim=1,
         )
-        feat = self._crosscoder.forward(hidden_acts)
-        return feat
+        feat = self._crosscoder.forward(hidden_acts.to(self._crosscoder.device))
+        setattr(inspector.state, self._name, feat)
+        return output
 
     def add(self, inspector):
-        if not hasattr(inspector.state, "crosscoder_hidden_acts"):
-            setattr(inspector.state, "crosscoder_hidden_acts", self._crosscoder)
+        inspector.state.create_section(self._name)
+        inspector.state.create_section(f"{self._name}_hidden_acts", default={})
         for name, processor in self._layers.items():
             id_ = inspector.add_op(name, Hook(forward=self.extract_layer(processor)))
             self._ids.append(id_)
 
     def remove(self, inspector):
-        if hasattr(inspector.state, "crosscoder_hidden_acts"):
-            delattr(inspector.state, "crosscoder_hidden_acts")
+        inspector.state.remove_section(self._name)
+        inspector.state.remove_section(f"{self._name}_hidden_acts")
         for id_ in self._ids:
             inspector.remove_op(id_)
 
@@ -121,7 +138,7 @@ class CrossCoderOp(Op):
             processor = lambda x: x
 
         def forward(inspector, name, module, args, kwargs, output):
-            inspector.state.crosscoder_hidden_acts[name] = processor(output)
+            inspector.state[f"{self._name}_hidden_acts"][name] = processor(output)
             return output
 
         return forward
