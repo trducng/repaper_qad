@@ -1,9 +1,12 @@
 import math
+from typing import Callable
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
+from dawnet.inspector import Op, Inspector
+from dawnet.op import Hook
 
 import lightning as L
 
@@ -27,25 +30,25 @@ class CrossCoderV1(L.LightningModule):
 
     def encode(self, x):
         """x has shape: n_batch x n_layers x n_hidden"""
-        z_1 = torch.matmul(x[:,0,:], self.W_enc_1)    # n_batch, n_features
-        z_2 = torch.matmul(x[:,1,:], self.W_enc_2)    # n_batch, n_features
+        z_1 = torch.matmul(x[:, 0, :], self.W_enc_1)  # n_batch, n_features
+        z_2 = torch.matmul(x[:, 1, :], self.W_enc_2)  # n_batch, n_features
         z = z_1 + z_2
-        z = z + self.b_enc    # n_batch, n_features
+        z = z + self.b_enc  # n_batch, n_features
         z = nn.functional.relu(z)
-        return z              # n_batch, n_features
+        return z  # n_batch, n_features
 
     def decode(self, a):
         """a has shape: n_batch x n_features"""
-        z = torch.matmul(a, self.W_dec)   # n_layers, n_batch, n_hidden
+        z = torch.matmul(a, self.W_dec)  # n_layers, n_batch, n_hidden
         n_layers, n_batch, n_hidden = z.shape
         z = z.view(n_batch, n_layers, n_hidden)
-        y = z + self.b_dec    # n_batch, n_layers, n_hidden
+        y = z + self.b_dec  # n_batch, n_layers, n_hidden
         return y
 
     def forward(self, x):
         """x has shape: n_layers x n_hidden"""
-        a_ = self.encode(x)   # n_batch, n_features
-        y = self.decode(a_)   # n_batch, n_hidden
+        a_ = self.encode(x)  # n_batch, n_features
+        y = self.decode(a_)  # n_batch, n_hidden
         return a_, y
 
     def configure_optimizers(self):
@@ -58,9 +61,9 @@ class CrossCoderV1(L.LightningModule):
         reconstruction = self.loss(batch[0], output)
 
         # regularization term
-        W_dec_norm = self.W_dec.norm(dim=2)    # n_layers, n_features
-        W_dec_sum = W_dec_norm.sum(dim=0)      # n_features
-        reg = W_dec_sum * act                  # n_features
+        W_dec_norm = self.W_dec.norm(dim=2)  # n_layers, n_features
+        W_dec_sum = W_dec_norm.sum(dim=0)  # n_features
+        reg = W_dec_sum * act  # n_features
         reg = reg.sum()
 
         # loss
@@ -81,3 +84,44 @@ class CrossCoderV1(L.LightningModule):
         _, fan_in = nn.init._calculate_fan_in_and_fan_out(self.W_dec)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         nn.init.uniform_(self.b_dec, -bound, bound)
+
+
+class CrossCoderOp(Op):
+    """Create the crosscoder"""
+
+    def __init__(self, crosscoder, layers: dict):
+        super().__init__()
+        self._crosscoder = crosscoder
+        self._layers = layers
+        self._ids = []
+
+    def forward(self, inspector: Inspector, name, module, args, kwargs, output):
+        hidden_acts = torch.stack(
+            [inspector.state.crosscoder_hidden_acts[name] for name in self._layers],
+            dim=1,
+        )
+        feat = self._crosscoder.forward(hidden_acts)
+        return feat
+
+    def add(self, inspector):
+        if not hasattr(inspector.state, "crosscoder_hidden_acts"):
+            setattr(inspector.state, "crosscoder_hidden_acts", self._crosscoder)
+        for name, processor in self._layers.items():
+            id_ = inspector.add_op(name, Hook(forward=self.extract_layer(processor)))
+            self._ids.append(id_)
+
+    def remove(self, inspector):
+        if hasattr(inspector.state, "crosscoder_hidden_acts"):
+            delattr(inspector.state, "crosscoder_hidden_acts")
+        for id_ in self._ids:
+            inspector.remove_op(id_)
+
+    def extract_layer(self, processor: None | Callable):
+        if processor is None:
+            processor = lambda x: x
+
+        def forward(inspector, name, module, args, kwargs, output):
+            inspector.state.crosscoder_hidden_acts[name] = processor(output)
+            return output
+
+        return forward
