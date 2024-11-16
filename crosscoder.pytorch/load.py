@@ -19,7 +19,9 @@ from dawnet import Inspector, op
 from dawnet.utils.notebook import run_in_process, is_ready
 from dawnet.utils.numpy import NpyAppendArray
 
+from data import IntermediateStateDataset
 from models import CrossCoderV1, CrossCoderOp
+from metrics import sparsity
 
 model_id = "openai-community/gpt2"
 
@@ -33,7 +35,10 @@ op_id = inspector.add_op(
     "",
     CrossCoderOp(
         crosscoder=crosscoder,
-        layers={"transformer.h.7": lambda x: x[0], "transformer.h.8": lambda x: x[0]},
+        layers={
+            "transformer.h.7": lambda x: x[0],
+            "transformer.h.8": lambda x: x[0]
+        },
         name="crosscoder",
     ),
 )

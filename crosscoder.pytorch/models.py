@@ -1,6 +1,7 @@
 import math
 from typing import Callable
 
+import einops
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -61,13 +62,13 @@ class CrossCoderV1(L.LightningModule):
         reconstruction = self.loss(batch[0], output)
 
         # regularization term
-        W_dec_norm = self.W_dec.norm(dim=2)  # n_layers, n_features
+        W_dec_norm = self.W_dec.norm(p=1, dim=2)  # n_layers, n_features
         W_dec_sum = W_dec_norm.sum(dim=0)  # n_features
         reg = W_dec_sum * act  # n_features
         reg = reg.sum()
 
         # loss
-        loss = reconstruction + 1e-4 * reg
+        loss = reconstruction + 1e-6 * reg
         if batch_nb % 10 == 0:
             tqdm.write(f"{loss.item()}, {reconstruction.item()}, {reg.item()}")
         return loss
@@ -86,6 +87,63 @@ class CrossCoderV1(L.LightningModule):
         nn.init.uniform_(self.b_dec, -bound, bound)
 
 
+class CrossCoderRef(L.LightningModule):
+    """Reference from https://github.com/ckkissane/crosscoder-model-diff-replication/blob/main/crosscoder.py"""
+
+    def __init__(self, n_hidden, n_features, dec_init_norm):
+        super().__init__(n_hidden, n_features)
+        self._hidden_dim = n_hidden
+        self._feature_dim = n_features
+        self.dtype = torch.float32
+
+        self.W_enc = nn.Parameter(
+            torch.empty(2, self._hidden_dim, self._feature_dim, dtype=self.dtype)
+        )
+        self.W_dec = nn.Parameter(
+            torch.nn.init.normal_(
+                torch.empty(self._feature_dim, 2, self._hidden_dim, dtype=self.dtype),
+            )
+        )
+        self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=-1, keepdim=True) * dec_init_norm
+        # TODO: what is the purpose of this transpose
+        # TODO: look at the role of `dec_init_norm`
+        self.W_enc.data = einops.rearrange(
+            self.W_dec.data.clone(),
+            "f l h -> l h f"
+        )
+        self.b_enc = nn.Parameter(torch.zeros(self._feature_dim, dtype=self.dtype))
+        self.b_dec = nn.Parameter(torch.zeros((2, self._hidden_dim), dtype=self.dtype))
+
+    def encode(self, x):
+        """x has shape: n_batch x n_layers x hidden_dim"""
+        z = torch.einsum("blh,lhf->bf", x, self.W_enc)
+        z = z + self.b_enc
+        z = torch.nn.functional.relu(z)
+        return z
+
+    def decode(self, feat):
+        """feat has shape: n_batch x n_features"""
+        y = torch.einsum("bf,flh->blh", feat, self.W_dec)
+        y = y + self.b_dec
+        return y
+
+    def forward(self, x):
+        """x has shape: n_layers x hidden_dim"""
+        feat = self.encode(x)
+        recon = self.decode(feat)
+        return feat, recon
+
+    def training_step(self, batch, batch_nb):
+        x = batch[0]
+        act, recon = self.forward(x)
+
+        diff = (recon - x).pow(2)
+        loss_per_batch = einops.reduce(diff, "blh->b", "sum")
+        recon_loss = loss_per_batch.mean()
+
+        decoder_norm = self.W_dec.norm(p=1, dim=-1)
+        decoder_norm = einops.reduce(decoder_norm, "fl -> f", "sum")
+        reg = decoder_norm * act
 
 class CrossCoderOp(Op):
     """Create the crosscoder
@@ -113,7 +171,10 @@ class CrossCoderOp(Op):
 
     def forward(self, inspector: Inspector, name, module, args, kwargs, output):
         hidden_acts = torch.stack(
-            [inspector.state.crosscoder_hidden_acts[name].squeeze() for name in self._layers],
+            [
+                inspector.state.crosscoder_hidden_acts[name].squeeze()
+                for name in self._layers
+            ],
             dim=1,
         )
         feat = self._crosscoder.forward(hidden_acts.to(self._crosscoder.device))
