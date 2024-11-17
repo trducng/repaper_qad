@@ -91,17 +91,17 @@ class CrossCoderRef(L.LightningModule):
     """Reference from https://github.com/ckkissane/crosscoder-model-diff-replication/blob/main/crosscoder.py"""
 
     def __init__(self, n_hidden, n_features, dec_init_norm):
-        super().__init__(n_hidden, n_features)
+        super().__init__()
         self._hidden_dim = n_hidden
         self._feature_dim = n_features
-        self.dtype = torch.float32
+        self._dtype = torch.float32
 
         self.W_enc = nn.Parameter(
-            torch.empty(2, self._hidden_dim, self._feature_dim, dtype=self.dtype)
+            torch.empty(2, self._hidden_dim, self._feature_dim, dtype=self._dtype)
         )
         self.W_dec = nn.Parameter(
             torch.nn.init.normal_(
-                torch.empty(self._feature_dim, 2, self._hidden_dim, dtype=self.dtype),
+                torch.empty(self._feature_dim, 2, self._hidden_dim, dtype=self._dtype),
             )
         )
         self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=-1, keepdim=True) * dec_init_norm
@@ -111,8 +111,11 @@ class CrossCoderRef(L.LightningModule):
             self.W_dec.data.clone(),
             "f l h -> l h f"
         )
-        self.b_enc = nn.Parameter(torch.zeros(self._feature_dim, dtype=self.dtype))
-        self.b_dec = nn.Parameter(torch.zeros((2, self._hidden_dim), dtype=self.dtype))
+        self.b_enc = nn.Parameter(torch.zeros(self._feature_dim, dtype=self._dtype))
+        self.b_dec = nn.Parameter(torch.zeros((2, self._hidden_dim), dtype=self._dtype))
+
+    def configure_optimizers(self):
+        return optim.Adam(self.parameters(), lr=1e-4)
 
     def encode(self, x):
         """x has shape: n_batch x n_layers x hidden_dim"""
@@ -134,6 +137,7 @@ class CrossCoderRef(L.LightningModule):
         return feat, recon
 
     def training_step(self, batch, batch_nb):
+        """The main difference is about sum and mean"""
         x = batch[0]
         act, recon = self.forward(x)
 
@@ -141,9 +145,18 @@ class CrossCoderRef(L.LightningModule):
         loss_per_batch = einops.reduce(diff, "blh->b", "sum")
         recon_loss = loss_per_batch.mean()
 
-        decoder_norm = self.W_dec.norm(p=1, dim=-1)
-        decoder_norm = einops.reduce(decoder_norm, "fl -> f", "sum")
-        reg = decoder_norm * act
+        W_dec_norm = self.W_dec.norm(p=1, dim=2)    # n_features, n_layers
+        W_dec_norm = einops.reduce(W_dec_norm, "fl -> f", "sum")   # n_features
+        reg = W_dec_norm * act   # n_feat * n_batch, n_feat -> n_batch, n_feat
+        reg = reg.sum(dim=1)    # n_batch
+        reg = reg.mean()
+
+        loss = recon_loss + reg
+        if batch_nb % 10 == 0:
+            tqdm.write(f"{loss.item()}, {recon_loss.item()}, {reg.item()}")
+
+        return loss
+
 
 class CrossCoderOp(Op):
     """Create the crosscoder
