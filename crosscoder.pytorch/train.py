@@ -9,7 +9,7 @@ from lightning.pytorch import loggers as pl_loggers
 
 
 from data import IntermediateStateDataset
-from models import CrossCoderV1, CrossCoderRef
+from models import CrossCoderV1, CrossCoderRef, CrossCoderV1A, CrossCoderV1B, CrossCoderV1C
 
 
 def collate_fn(*args, **kwargs):
@@ -26,9 +26,10 @@ train_dataset = IntermediateStateDataset(
 
 
 # model = CrossCoderV1(n_features=768 * 16, n_hidden=768, n_layers=2)
-model = CrossCoderRef(n_features=768 * 16, n_hidden=768, dec_init_norm=0.08)
+# model = CrossCoderRef(n_features=768 * 16, n_hidden=768, dec_init_norm=0.08)
+model = CrossCoderV1B(n_features=768 * 16, n_hidden=768, n_layers=2)
 trainer = L.Trainer(
-    accelerator="gpu", callbacks=[ckpt_callback], max_epochs=2
+    accelerator="gpu", callbacks=[ckpt_callback], max_epochs=10
 )
 trainer.fit(
     model,

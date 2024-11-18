@@ -62,7 +62,7 @@ def sparsity(
 def dead_neurons(model, input_data=None) -> dict:
     """Calculate neurons that never get activated
     """
-    ...
+    pass
 
 
 def activation_statistics():

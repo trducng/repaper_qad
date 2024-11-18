@@ -119,14 +119,14 @@ class CrossCoderRef(L.LightningModule):
 
     def encode(self, x):
         """x has shape: n_batch x n_layers x hidden_dim"""
-        z = torch.einsum("blh,lhf->bf", x, self.W_enc)
+        z = torch.einsum("b l h, l h f -> b f", x, self.W_enc)
         z = z + self.b_enc
         z = torch.nn.functional.relu(z)
         return z
 
     def decode(self, feat):
         """feat has shape: n_batch x n_features"""
-        y = torch.einsum("bf,flh->blh", feat, self.W_dec)
+        y = torch.einsum("b f, f l h -> b l h", feat, self.W_dec)
         y = y + self.b_dec
         return y
 
@@ -142,11 +142,11 @@ class CrossCoderRef(L.LightningModule):
         act, recon = self.forward(x)
 
         diff = (recon - x).pow(2)
-        loss_per_batch = einops.reduce(diff, "blh->b", "sum")
+        loss_per_batch = einops.reduce(diff, "b l h -> b", "sum")
         recon_loss = loss_per_batch.mean()
 
         W_dec_norm = self.W_dec.norm(p=1, dim=2)    # n_features, n_layers
-        W_dec_norm = einops.reduce(W_dec_norm, "fl -> f", "sum")   # n_features
+        W_dec_norm = einops.reduce(W_dec_norm, "f l -> f", "sum")   # n_features
         reg = W_dec_norm * act   # n_feat * n_batch, n_feat -> n_batch, n_feat
         reg = reg.sum(dim=1)    # n_batch
         reg = reg.mean()
@@ -156,6 +156,58 @@ class CrossCoderRef(L.LightningModule):
             tqdm.write(f"{loss.item()}, {recon_loss.item()}, {reg.item()}")
 
         return loss
+
+
+class CrossCoderV1A(CrossCoderV1):
+    """Similar to CrossCoderV1 but with different loss calculation:
+
+    Result:
+        - Running slower than CrossCoderRef
+        - But have much sparser representation, on average, it has 79.3 active
+          features, while CrossCoderRef has 200.6 active features
+
+    Next step: try to balance the encoder and decoder weight.
+    """
+    def training_step(self, batch, batch_nb):
+        x = batch[0]
+        act, recon = self.forward(x)
+
+        # reconstruction mse term
+        diff = (recon - x).pow(2)
+        loss_per_batch = einops.reduce(diff, "b l h -> b", "sum")
+        recon_loss = loss_per_batch.mean()
+
+        # regularization term
+        W_dec_norm = self.W_dec.norm(p=1, dim=2)  # n_layers, n_features
+        W_dec_sum = W_dec_norm.sum(dim=0)  # n_features
+        reg = W_dec_sum * act  # n_batch, n_features
+        reg = reg.sum(dim=1)   # n_batch
+        reg = reg.mean()
+
+        # loss
+        loss = recon_loss + reg
+        if batch_nb % 10 == 0:
+            tqdm.write(f"{loss.item()}, {recon_loss.item()}, {reg.item()}")
+        return loss
+
+
+class CrossCoderV1B(CrossCoderV1):
+    """Balance the encoder and decoder weight
+
+    Result:
+        - All the features become zero
+    """
+    def __init__(self, n_hidden, n_features, n_layers):
+        super().__init__(n_hidden, n_features, n_layers)
+        self.W_enc_1.data = self.W_dec.data[0].T.clone()
+        self.W_enc_2.data = self.W_dec.data[1].T.clone()
+
+
+class CrossCoderV1C(CrossCoderV1A):
+    def __init__(self, n_hidden, n_features, n_layers):
+        super().__init__(n_hidden, n_features, n_layers)
+        self.W_enc_1.data = self.W_dec.data[0].T.clone()
+        self.W_enc_2.data = self.W_dec.data[1].T.clone()
 
 
 class CrossCoderOp(Op):
