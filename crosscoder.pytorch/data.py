@@ -27,6 +27,11 @@ class IntermediateStateDataset(torch.utils.data.Dataset):
             self.buffer2 = self.layer2[
                 self.buffer_pointer : self.buffer_pointer + self.buffer_size
             ]
+        elif idx < self.buffer_pointer:
+            tqdm.write(f"Loading new buffer from 0")
+            self.buffer_pointer = 0
+            self.buffer1 = self.layer1[: self.buffer_size]
+            self.buffer2 = self.layer2[: self.buffer_size]
 
         local_idx = idx % self.buffer_size
 

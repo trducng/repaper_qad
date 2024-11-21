@@ -11,9 +11,10 @@ from dawnet.op import Hook
 
 import lightning as L
 
+from metrics import Sparsity, DeadNeurons
 
 class CrossCoderV1(L.LightningModule):
-    def __init__(self, n_hidden, n_features, n_layers):
+    def __init__(self, n_hidden, n_features, n_layers, desc):
         super().__init__()
 
         self._n_hidden = n_hidden
@@ -28,6 +29,7 @@ class CrossCoderV1(L.LightningModule):
         self.loss = nn.MSELoss()
         self.reset_parameters()
         self.save_hyperparameters()
+        self.metrics = [Sparsity(), DeadNeurons()]
 
     def encode(self, x):
         """x has shape: n_batch x n_layers x n_hidden"""
@@ -70,8 +72,30 @@ class CrossCoderV1(L.LightningModule):
         # loss
         loss = reconstruction + 1e-6 * reg
         if batch_nb % 10 == 0:
-            tqdm.write(f"{loss.item()}, {reconstruction.item()}, {reg.item()}")
+            self.log("loss", loss.item())
+            self.log("recon", reconstruction.item())
+            self.log("reg", reg.item())
         return loss
+
+    def on_validation_epoch_start(self):
+        for metric in self.metrics:
+            metric.initiate()
+
+    def validation_step(self, batch, batch_nb):
+        """Work on the validation"""
+        n, c, l, f = batch.shape
+        hidden_feat = batch.reshape(n * c, l, f)
+        feat = self.encode(hidden_feat.to(self.device))
+        feat = feat.reshape(n, c, -1)
+        for metric in self.metrics:
+            metric.update(feat)
+
+    def on_validation_epoch_end(self):
+        result = {}
+        for metric in self.metrics:
+            metric.finalize(result)
+        self.log_dict(result)
+        print(result)
 
     def reset_parameters(self) -> None:
         nn.init.kaiming_uniform_(self.W_enc_1, a=math.sqrt(5))
@@ -88,9 +112,14 @@ class CrossCoderV1(L.LightningModule):
 
 
 class CrossCoderRef(L.LightningModule):
-    """Reference from https://github.com/ckkissane/crosscoder-model-diff-replication/blob/main/crosscoder.py"""
+    """Reference from https://github.com/ckkissane/crosscoder-model-diff-replication/blob/main/crosscoder.py
 
-    def __init__(self, n_hidden, n_features, dec_init_norm):
+    Note:
+        - Varying `dec_init_norm` from 0.03, 1.0 greatly increases the number of
+        dead neurons. So, weight initialization is crucial to obtain good output.
+    """
+
+    def __init__(self, n_hidden, n_features, dec_init_norm, desc):
         super().__init__()
         self._hidden_dim = n_hidden
         self._feature_dim = n_features
@@ -105,7 +134,7 @@ class CrossCoderRef(L.LightningModule):
             )
         )
         self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=-1, keepdim=True) * dec_init_norm
-        # TODO: what is the purpose of this transpose
+        # TODO: what is the purpose of this transpose of making it balance. Virtually nothing?
         # TODO: look at the role of `dec_init_norm`
         self.W_enc.data = einops.rearrange(
             self.W_dec.data.clone(),
@@ -113,6 +142,8 @@ class CrossCoderRef(L.LightningModule):
         )
         self.b_enc = nn.Parameter(torch.zeros(self._feature_dim, dtype=self._dtype))
         self.b_dec = nn.Parameter(torch.zeros((2, self._hidden_dim), dtype=self._dtype))
+        self.metrics = [Sparsity(), DeadNeurons()]
+        self.save_hyperparameters()
 
     def configure_optimizers(self):
         return optim.Adam(self.parameters(), lr=1e-4)
@@ -153,13 +184,35 @@ class CrossCoderRef(L.LightningModule):
 
         loss = recon_loss + reg
         if batch_nb % 10 == 0:
-            tqdm.write(f"{loss.item()}, {recon_loss.item()}, {reg.item()}")
+            self.log("loss", loss.item())
+            self.log("recon", recon_loss.item())
+            self.log("reg", reg.item())
 
         return loss
 
+    def on_validation_epoch_start(self):
+        for metric in self.metrics:
+            metric.initiate()
+
+    def validation_step(self, batch, batch_nb):
+        """Work on the validation"""
+        n, c, l, f = batch.shape
+        hidden_feat = batch.reshape(n * c, l, f)
+        feat = self.encode(hidden_feat.to(self.device))
+        feat = feat.reshape(n, c, -1)
+        for metric in self.metrics:
+            metric.update(feat)
+
+    def on_validation_epoch_end(self):
+        result = {}
+        for metric in self.metrics:
+            metric.finalize(result)
+        self.log_dict(result)
+        print(result)
+
 
 class CrossCoderV1A(CrossCoderV1):
-    """Similar to CrossCoderV1 but with different loss calculation:
+    """Similar to CrossCoderV1 but with different loss calculation A
 
     Result:
         - Running slower than CrossCoderRef
@@ -187,7 +240,9 @@ class CrossCoderV1A(CrossCoderV1):
         # loss
         loss = recon_loss + reg
         if batch_nb % 10 == 0:
-            tqdm.write(f"{loss.item()}, {recon_loss.item()}, {reg.item()}")
+            self.log("loss", loss.item())
+            self.log("recon", recon_loss.item())
+            self.log("reg", reg.item())
         return loss
 
 
@@ -196,18 +251,49 @@ class CrossCoderV1B(CrossCoderV1):
 
     Result:
         - All the features become zero
+
+    It seems transposing the encoder and decoder make no difference. Yes, why should it
+    when the transpose operation is not a reversible operation.
     """
-    def __init__(self, n_hidden, n_features, n_layers):
-        super().__init__(n_hidden, n_features, n_layers)
+    def __init__(self, n_hidden, n_features, n_layers, desc):
+        super().__init__(n_hidden, n_features, n_layers, desc)
         self.W_enc_1.data = self.W_dec.data[0].T.clone()
         self.W_enc_2.data = self.W_dec.data[1].T.clone()
 
 
 class CrossCoderV1C(CrossCoderV1A):
-    def __init__(self, n_hidden, n_features, n_layers):
-        super().__init__(n_hidden, n_features, n_layers)
+    """Balance the encoder and decoder weight, from loss calculation A
+    """
+    def __init__(self, n_hidden, n_features, n_layers, desc):
+        super().__init__(n_hidden, n_features, n_layers, desc)
         self.W_enc_1.data = self.W_dec.data[0].T.clone()
         self.W_enc_2.data = self.W_dec.data[1].T.clone()
+
+
+class CrossCoderV1DUseKamingInitTranspose(CrossCoderV1A):
+    def reset_parameters(self) -> None:
+        nn.init.kaiming_uniform_(self.W_enc_1.T, nonlinearity="relu")
+        nn.init.kaiming_uniform_(self.W_enc_2.T, nonlinearity="relu")
+        nn.init.kaiming_uniform_(self.W_dec.T, nonlinearity="linear")
+
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W_enc_1.T)
+        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+        nn.init.uniform_(self.b_enc, -bound, bound)
+
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W_dec[:,0,:].T)
+        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+        nn.init.uniform_(self.b_dec, -bound, bound)
+
+
+class CrossCoderV1ENormalizeKaimingInitTranspose(CrossCoderV1DUseKamingInitTranspose):
+    def __init__(self, n_hidden, n_features, n_layers, desc, dec_init_norm):
+        self.dec_init_norm = dec_init_norm
+        super().__init__(n_hidden, n_features, n_layers, desc)
+        self.save_hyperparameters()
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=1, keepdim=True) * self.dec_init_norm
 
 
 class CrossCoderOp(Op):

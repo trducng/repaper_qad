@@ -1,5 +1,6 @@
 """Train a crosscoder, and then hook that crosscoder to a model through an inspector
 """
+import numpy as np
 import torch
 from tqdm import tqdm
 
@@ -59,12 +60,6 @@ def sparsity(
     return outputs     # n_batch x ctx_len
 
 
-def dead_neurons(model, input_data=None) -> dict:
-    """Calculate neurons that never get activated
-    """
-    pass
-
-
 def activation_statistics():
     ...
 
@@ -75,6 +70,116 @@ def reconstruction_error():
 
 def cross_entropy_difference():
     ...
+
+
+class Metrics:
+    def __init__(self):
+        self._initiated = False
+        self.name = "metrics"
+
+    def initiate(self):
+        self._initiated = True
+
+    def update(self, feat):
+        pass
+
+
+class Sparsity(Metrics):
+
+    def __init__(self):
+        super().__init__()
+        self.name = "sparsity"
+        self.outputs = []
+        self.result = None
+        self.feat_shape = 0
+
+    def initialize(self):
+        self._initiated = True
+
+    def update(self, feat):
+        """feat has shape n x c x f"""
+        self.feat_shape = feat.shape[2]
+        activated = feat > 0     # n x c x f
+        # percentage of activated features
+        output = activated.sum(dim=2)    # n x c
+        self.outputs.append(output.cpu().numpy())
+
+    def finalize(self, result_dict):
+        self.outputs_np = np.concatenate(self.outputs, axis=0)   # n x c
+        self.outputs = []
+        mean = self.outputs_np.mean()
+        max = self.outputs_np.max()
+        min = self.outputs_np.min()
+        median = np.median(self.outputs_np)
+        self.result = {
+            "total_inactive": (self.outputs_np == 0).sum(),
+            "mean_active": mean,
+            "mean_active_pct": mean / self.feat_shape,
+            "max_active": max,
+            "max_active_pct": max / self.feat_shape,
+            "min_active": min,
+            "min_active_pct": min / self.feat_shape,
+            "median_active": median,
+            "median_active_pct": median / self.feat_shape,
+        }
+        result_dict.update(self.result)
+
+
+class DeadNeurons(Metrics):
+    def __init__(self):
+        super().__init__()
+        self.name = "dead_neurons"
+        self.count = None
+
+    def initiate(self):
+        super().initiate()
+        self.count = None
+
+    def update(self, feat):
+        """feat has shape n x c x f"""
+        if self.count is None:
+            self.count = torch.zeros(feat.shape[2]).to(device=feat.device)
+        self.count += (feat != 0).sum(dim=[0, 1])
+
+    def finalize(self, result_dict):
+        if self.count is not None:
+            dead_neurons = (self.count == 0).sum().cpu().item()
+            self.result = {
+                "total_dead_neurons": dead_neurons,
+                "total_neurons": self.count.shape[0],
+                "pct_dead_neurons": dead_neurons / self.count.shape[0],
+            }
+            result_dict.update(self.result)
+
+
+def evaluate(crosscoder, hidden_loader, metrics: list | None = None):
+    """Evaluate the model using a list of metrics
+
+    Args:
+        crosscoder: the crosscoder model
+        hidden_loader: the dataloader that contains the hidden activation
+        metrics: the list of metrics to evaluate the model
+    """
+    if metrics is None:
+        metrics = [Sparsity(), DeadNeurons()]
+
+    for metric in metrics:
+        metric.initiate()
+
+    with torch.no_grad():
+        for hidden_feat in tqdm(hidden_loader):
+            n, c, l, f = hidden_feat.shape
+            hidden_feat = hidden_feat.reshape(n * c, l, f)
+            feat = crosscoder.encode(hidden_feat.to(device=crosscoder.device))  # b x f
+            feat = feat.reshape(n, c, -1)
+            for metric in metrics:
+                metric.update(feat)
+
+    result = {}
+    for metric in metrics:
+        metric.finalize(result)
+
+    return result
 
 
 if __name__ == "__main__":

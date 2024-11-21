@@ -1,0 +1,39 @@
+- [x] Rerun dead neurons ref to check whether the percentage of dead neurons stay the same
+    - @RESULT: Confirm that the percentage of dead neurons stay the same (2284 neurons when decoder weights is inited at 0.08)
+- [x] Check the effect of decoder init norm on the number of dead neurons for the reference model
+    - @RESULT:
+        - 0.03: 4669
+        - 0.1: 2088
+        - 0.12: 1944
+        - 0.14: 2164
+        - 0.16: 2480
+        - 0.18: 3398
+        - 1: 1.18e+4
+        - There exists a sweet spot for the decoder init norm, such that the number of dead neurons can decrease.
+        - The decoder weight also plays an important role in calculating the regularization term.
+- [x] Check dead neurons of 1A
+    - @Result -> Quite good.
+        - No dead neurons
+        - Why is that? This is so weird.
+- [ ] Use correct transpose version for kaiming init
+    - @Result -> Dead neurons become 5128
+- [ ] Normalize the weight after kaiming init
+- [ ] Incorprate the explained variance into metrics
+- [ ] Add explained variance metrics
+- [ ] Check if loading dataset is efficient
+- [ ] Experiment management system, where you can submit your job queue
+    - [ ] Can get some hands on experience with Slurm
+    - Experiment management is quite tricky:
+        - Correct data when the job is submitted.
+        - Correct code when the job is submitted.
+        - Correct configuration when the job is submitted.
+        - Have the correct environment to run the training.
+        - Multi-job management (when running jobs in parallel).
+    - The job progress will be shown in the service (in the terminal) and in
+      tensorboard...
+    - You can have another comment to push the job to a queue.
+    - And then the services will execute that job.
+    - You can list remaining jobs, modifying the remaining jobs, or deleting the jobs.
+    - You can list hardware accelerators on multiple machines.
+    - You can push job so that it will be executed in a different machines.
+    - Sounds like a more flexible vast.ai or prime intellect, or petals.
