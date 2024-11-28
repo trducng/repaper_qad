@@ -11,7 +11,7 @@ from dawnet.op import Hook
 
 import lightning as L
 
-from metrics import Sparsity, DeadNeurons
+from metrics import L0, DeadNeurons, ExplainedVariance
 
 class CrossCoderV1(L.LightningModule):
     def __init__(self, n_hidden, n_features, n_layers, desc):
@@ -29,7 +29,8 @@ class CrossCoderV1(L.LightningModule):
         self.loss = nn.MSELoss()
         self.reset_parameters()
         self.save_hyperparameters()
-        self.metrics = [Sparsity(), DeadNeurons()]
+        self.feat_metrics = [L0(), DeadNeurons()]
+        self.recon_metrics = [ExplainedVariance()]
 
     def encode(self, x):
         """x has shape: n_batch x n_layers x n_hidden"""
@@ -78,21 +79,27 @@ class CrossCoderV1(L.LightningModule):
         return loss
 
     def on_validation_epoch_start(self):
-        for metric in self.metrics:
+        for metric in self.feat_metrics:
+            metric.initiate()
+        for metric in self.recon_metrics:
             metric.initiate()
 
     def validation_step(self, batch, batch_nb):
         """Work on the validation"""
         n, c, l, f = batch.shape
-        hidden_feat = batch.reshape(n * c, l, f)
-        feat = self.encode(hidden_feat.to(self.device))
+        hidden_feat = batch.reshape(n * c, l, f).to(self.device)
+        feat, recon = self.forward(hidden_feat)
         feat = feat.reshape(n, c, -1)
-        for metric in self.metrics:
+        for metric in self.feat_metrics:
             metric.update(feat)
+        for metric in self.recon_metrics:
+            metric.update(hidden_feat, recon)
 
     def on_validation_epoch_end(self):
         result = {}
-        for metric in self.metrics:
+        for metric in self.feat_metrics:
+            metric.finalize(result)
+        for metric in self.recon_metrics:
             metric.finalize(result)
         self.log_dict(result)
         print(result)
@@ -142,7 +149,8 @@ class CrossCoderRef(L.LightningModule):
         )
         self.b_enc = nn.Parameter(torch.zeros(self._feature_dim, dtype=self._dtype))
         self.b_dec = nn.Parameter(torch.zeros((2, self._hidden_dim), dtype=self._dtype))
-        self.metrics = [Sparsity(), DeadNeurons()]
+        self.feat_metrics = [L0(), DeadNeurons()]
+        self.recon_metrics = [ExplainedVariance()]
         self.save_hyperparameters()
 
     def configure_optimizers(self):
@@ -191,21 +199,27 @@ class CrossCoderRef(L.LightningModule):
         return loss
 
     def on_validation_epoch_start(self):
-        for metric in self.metrics:
+        for metric in self.feat_metrics:
+            metric.initiate()
+        for metric in self.recon_metrics:
             metric.initiate()
 
     def validation_step(self, batch, batch_nb):
         """Work on the validation"""
         n, c, l, f = batch.shape
-        hidden_feat = batch.reshape(n * c, l, f)
-        feat = self.encode(hidden_feat.to(self.device))
+        hidden_feat = batch.reshape(n * c, l, f).to(self.device)
+        feat, recon = self.forward(hidden_feat)
         feat = feat.reshape(n, c, -1)
-        for metric in self.metrics:
+        for metric in self.feat_metrics:
             metric.update(feat)
+        for metric in self.recon_metrics:
+            metric.update(hidden_feat, recon)
 
     def on_validation_epoch_end(self):
         result = {}
-        for metric in self.metrics:
+        for metric in self.feat_metrics:
+            metric.finalize(result)
+        for metric in self.recon_metrics:
             metric.finalize(result)
         self.log_dict(result)
         print(result)
@@ -271,6 +285,7 @@ class CrossCoderV1C(CrossCoderV1A):
 
 
 class CrossCoderV1DUseKamingInitTranspose(CrossCoderV1A):
+    """Surprisingly it has 5000 dead neurons"""
     def reset_parameters(self) -> None:
         nn.init.kaiming_uniform_(self.W_enc_1.T, nonlinearity="relu")
         nn.init.kaiming_uniform_(self.W_enc_2.T, nonlinearity="relu")
@@ -286,6 +301,13 @@ class CrossCoderV1DUseKamingInitTranspose(CrossCoderV1A):
 
 
 class CrossCoderV1ENormalizeKaimingInitTranspose(CrossCoderV1DUseKamingInitTranspose):
+    """
+    Result:
+        - Surprisingly, it has only 65 dead neurons, with quite good L0 (0.0228
+          activated)
+
+    It seems to be important to normalize the weight, so that it allow for a good norm.
+    """
     def __init__(self, n_hidden, n_features, n_layers, desc, dec_init_norm):
         self.dec_init_norm = dec_init_norm
         super().__init__(n_hidden, n_features, n_layers, desc)

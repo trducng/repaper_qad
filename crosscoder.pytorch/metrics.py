@@ -84,43 +84,44 @@ class Metrics:
         pass
 
 
-class Sparsity(Metrics):
+class L0(Metrics):
 
     def __init__(self):
         super().__init__()
         self.name = "sparsity"
-        self.outputs = []
         self.result = None
         self.feat_shape = 0
 
-    def initialize(self):
+    def initiate(self):
         self._initiated = True
+        self.total_inactive = 0
+        self.total = 0
+        self.n_instances = 0
+        self.max_active = 0
+        self.min_active = 0
 
     def update(self, feat):
         """feat has shape n x c x f"""
         self.feat_shape = feat.shape[2]
         activated = feat > 0     # n x c x f
-        # percentage of activated features
-        output = activated.sum(dim=2)    # n x c
-        self.outputs.append(output.cpu().numpy())
+        activated_feats = activated.sum(dim=2).cpu().numpy()    # n x c
+
+        self.total_inactive += (activated_feats == 0).sum()
+        self.total += activated_feats.sum()
+        self.n_instances += activated_feats.size
+        self.max_active = max(self.max_active, activated_feats.max())
+        self.min_active = min(self.min_active, activated_feats.min())
 
     def finalize(self, result_dict):
-        self.outputs_np = np.concatenate(self.outputs, axis=0)   # n x c
-        self.outputs = []
-        mean = self.outputs_np.mean()
-        max = self.outputs_np.max()
-        min = self.outputs_np.min()
-        median = np.median(self.outputs_np)
+        mean = self.total / self.n_instances
         self.result = {
-            "total_inactive": (self.outputs_np == 0).sum(),
+            "total_inactive": self.total_inactive,
             "mean_active": mean,
             "mean_active_pct": mean / self.feat_shape,
-            "max_active": max,
-            "max_active_pct": max / self.feat_shape,
-            "min_active": min,
-            "min_active_pct": min / self.feat_shape,
-            "median_active": median,
-            "median_active_pct": median / self.feat_shape,
+            "max_active": self.max_active,
+            "max_active_pct": self.max_active / self.feat_shape,
+            "min_active": self.min_active,
+            "min_active_pct": self.min_active / self.feat_shape,
         }
         result_dict.update(self.result)
 
@@ -152,6 +153,54 @@ class DeadNeurons(Metrics):
             result_dict.update(self.result)
 
 
+class ExplainedVariance(Metrics):
+    def __init__(self):
+        super().__init__()
+        self.name = "explained_variance"
+
+    def initiate(self):
+        super().initiate()
+        self.mean_explained_variance = []
+        self.mean_explained_variance_a = []
+        self.mean_explained_variabce_b = []
+        self.residual = []
+
+    def update(self, x, recon):
+        """Each has shape b x l x f"""
+        residual = (x.float() - recon.float()) ** 2
+        x_var = (x - x.mean(dim=-1, keepdim=True)) ** 2
+
+        explained_variance = (
+            1
+            - residual.sum(dim=(1, 2)) / (x_var.sum(dim=(1, 2)) + 1e-8)
+        ).mean().item()
+        explained_variance_a = (
+            1
+            - residual[:,0,:].sum(dim=1) / (x_var[:,0,:].sum(dim=1) + 1e-8)
+        ).mean().item()
+        explained_variance_b = (
+            1
+            - residual[:,1,:].sum(dim=1) / (x_var[:,1,:].sum(dim=1) + 1e-8)
+        ).mean().item()
+
+        self.residual.append(residual.cpu().numpy().mean())
+        self.mean_explained_variance.append(explained_variance)
+        self.mean_explained_variance_a.append(explained_variance_a)
+        self.mean_explained_variabce_b.append(explained_variance_b)
+
+    def finalize(self, result_dict):
+        result_dict.update({
+            "mean_explained_variance": np.mean(self.mean_explained_variance),
+            "mean_explained_variance_a": np.mean(self.mean_explained_variance_a),
+            "mean_explained_variance_b": np.mean(self.mean_explained_variabce_b),
+            "residual": np.mean(self.residual),
+        })
+
+
+class CrossEntropyDifference(Metrics):
+    pass
+
+
 def evaluate(crosscoder, hidden_loader, metrics: list | None = None):
     """Evaluate the model using a list of metrics
 
@@ -161,7 +210,7 @@ def evaluate(crosscoder, hidden_loader, metrics: list | None = None):
         metrics: the list of metrics to evaluate the model
     """
     if metrics is None:
-        metrics = [Sparsity(), DeadNeurons()]
+        metrics = [L0(), DeadNeurons()]
 
     for metric in metrics:
         metric.initiate()

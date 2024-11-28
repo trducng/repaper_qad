@@ -15,12 +15,23 @@
     - @Result -> Quite good.
         - No dead neurons
         - Why is that? This is so weird.
-- [ ] Use correct transpose version for kaiming init
+- [x] Use correct transpose version for kaiming init
     - @Result -> Dead neurons become 5128
-- [ ] Normalize the weight after kaiming init
+- [x] Normalize the weight after kaiming init
+    - @Result:
+        - 0.12: Dead neurons become 65. It is an acceptable number. 0.0228
+          percent of features are activated on average.
+        - 
 - [ ] Incorprate the explained variance into metrics
-- [ ] Add explained variance metrics
 - [ ] Check if loading dataset is efficient
+    - It's currently not. It has error in that even doesn't iterate through the whole dataset.
+    - You want to achieve:
+        - Multiple processeses sharing the same block of data on RAM.
+        - Preload the data from disk to RAM during computational processes, so that we decrease I/O bottleneck from computation time.
+        - Preload the data from RAM to GPU memory during computational processes, so that we decrease I/O bottleneck from computation time.
+        - Add more SSD to store read-intensive data.
+        - Add more RAM to reduce the frequency of copying data.
+
 - [ ] Experiment management system, where you can submit your job queue
     - [ ] Can get some hands on experience with Slurm
     - Experiment management is quite tricky:

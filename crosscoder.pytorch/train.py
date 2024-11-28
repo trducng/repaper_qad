@@ -9,11 +9,11 @@ from lightning.pytorch import loggers as pl_loggers
 from lightning.pytorch.loggers import TensorBoardLogger
 
 
-from data import IntermediateStateDataset
+from data import IntermediateStateDataset, IntermediateStateDatasetv2
 from models import CrossCoderV1, CrossCoderRef, CrossCoderV1A, CrossCoderV1B, CrossCoderV1C, CrossCoderV1DUseKamingInitTranspose, CrossCoderV1ENormalizeKaimingInitTranspose
 
-VERSION = "CrossCoderV1ENormalizeKaimingInitTranspose0.12"
-DESC = "Normalize the crosscoder that has kaiming init transposed, with the norm to be 0.12"
+VERSION = "CrossCoderV1ENormalizeKaimingInitTranspose0.08-2"
+DESC = "Normalize the crosscoder that has kaiming init transposed, with the norm to be 0.08"
 
 if not VERSION or not DESC:
     raise ValueError("Please set VERSION and DESC")
@@ -27,13 +27,13 @@ def collate_fn(*args, **kwargs):
 # model = CrossCoderV1A(n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC)
 # model = CrossCoderRef(n_features=768 * 16, n_hidden=768, dec_init_norm=0.18, desc=DESC)
 # model = CrossCoderV1C(n_features=768 * 16, n_hidden=768, n_layers=2)
-model = CrossCoderV1ENormalizeKaimingInitTranspose(n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.12)
+model = CrossCoderV1ENormalizeKaimingInitTranspose(n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.08)
 logger = TensorBoardLogger(save_dir=Path.cwd(), name="logs", version=VERSION)
 ckpt_callback = ModelCheckpoint(train_time_interval=timedelta(minutes=30))
 # tb_logger = pl_loggers.TensorBoardLogger(save_dir=Path.cwd(), name="logs")
 train_dataset = IntermediateStateDataset(
-    path1="/data2/mech/internals/transformer.h.8.npy",
-    path2="/data2/mech/internals/transformer.h.9.npy",
+    path1="/data3/mech/internals/transformer.h.8.npy",
+    path2="/data3/mech/internals/transformer.h.9.npy",
 )
 
 
@@ -47,9 +47,19 @@ trainer = L.Trainer(
 trainer.fit(
     model,
     train_dataloaders=[
-        torch.utils.data.DataLoader(train_dataset, batch_size=32, collate_fn=collate_fn)
+        torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=32,
+            collate_fn=collate_fn,
+            num_workers=4,
+            pin_memory=True,
+        )
     ],
     val_dataloaders=[
-        torch.utils.data.DataLoader(train_dataset, batch_size=16)
+        torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=16,
+            num_workers=4,
+        )
     ]
 )
