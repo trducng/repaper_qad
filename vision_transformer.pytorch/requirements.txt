@@ -1,6 +1,6 @@
 absl-py==0.11.0
 backcall==0.2.0
-certifi==2020.11.8
+certifi==2022.12.7
 cycler==0.10.0
 decorator==4.4.2
 einops==0.3.0
