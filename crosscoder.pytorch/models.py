@@ -261,13 +261,13 @@ class CrossCoderV1A(CrossCoderV1):
 
 
 class CrossCoderV1B(CrossCoderV1):
-    """Balance the encoder and decoder weight
+    """Balance the encoder and decoder weight, from the original version.
 
     Result:
         - All the features become zero
 
     It seems transposing the encoder and decoder make no difference. Yes, why should it
-    when the transpose operation is not a reversible operation.
+    be when the transpose operation is not a reversible operation.
     """
     def __init__(self, n_hidden, n_features, n_layers, desc):
         super().__init__(n_hidden, n_features, n_layers, desc)
@@ -276,7 +276,7 @@ class CrossCoderV1B(CrossCoderV1):
 
 
 class CrossCoderV1C(CrossCoderV1A):
-    """Balance the encoder and decoder weight, from loss calculation A
+    """Balance the encoder and decoder weight, from improved loss calculation A version
     """
     def __init__(self, n_hidden, n_features, n_layers, desc):
         super().__init__(n_hidden, n_features, n_layers, desc)
@@ -316,6 +316,29 @@ class CrossCoderV1ENormalizeKaimingInitTranspose(CrossCoderV1DUseKamingInitTrans
     def reset_parameters(self):
         super().reset_parameters()
         self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=1, keepdim=True) * self.dec_init_norm
+
+
+class V1FNoWdecInReg(CrossCoderV1ENormalizeKaimingInitTranspose):
+    def training_step(self, batch, batch_nb):
+        x = batch[0]
+        act, recon = self.forward(x)
+
+        # reconstruction mse term
+        diff = (recon - x).pow(2)
+        loss_per_batch = einops.reduce(diff, "b l h -> b", "sum")
+        recon_loss = loss_per_batch.mean()
+
+        # regularization term
+        reg = act.sum(dim=1)   # n_batch
+        reg = reg.mean()
+
+        # loss
+        loss = recon_loss + reg
+        if batch_nb % 10 == 0:
+            self.log("loss", loss.item())
+            self.log("recon", recon_loss.item())
+            self.log("reg", reg.item())
+        return loss
 
 
 class CrossCoderOp(Op):
