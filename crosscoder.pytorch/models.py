@@ -341,6 +341,33 @@ class V1FNoWdecInReg(CrossCoderV1ENormalizeKaimingInitTranspose):
         return loss
 
 
+class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
+    def training_step(self, batch, batch_nb):
+        x = batch[0]
+        act, recon = self.forward(x)
+
+        # reconstruction mse term
+        diff = (recon - x).pow(2)
+        loss_per_batch = einops.reduce(diff, "b l h -> b", "sum")
+        recon_loss = loss_per_batch.mean()
+
+        # regularization term
+        W_dec = self.W_dec.detach()
+        W_dec_norm = W_dec.norm(p=1, dim=2)  # n_layers, n_features
+        W_dec_sum = W_dec_norm.sum(dim=0)  # n_features
+        reg = W_dec_sum * act  # n_batch, n_features
+        reg = reg.sum(dim=1)   # n_batch
+        reg = reg.mean()
+
+        # loss
+        loss = recon_loss + reg
+        if batch_nb % 10 == 0:
+            self.log("loss", loss.item())
+            self.log("recon", recon_loss.item())
+            self.log("reg", reg.item())
+        return loss
+
+
 class CrossCoderOp(Op):
     """Create the crosscoder
 
