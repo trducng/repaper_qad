@@ -19,10 +19,11 @@ from models import (
     CrossCoderV1DUseKamingInitTranspose,
     CrossCoderV1ENormalizeKaimingInitTranspose,
     V1FNoWdecInReg,
+    V1GDetachWdec
 )
 
-VERSION = "V1FNoWdecInReg"
-DESC = "Remove using decoder weight when calculating l1 regularization"
+VERSION = "V1GDetachWdec0.1"
+DESC = "Reduce the effect of regularization term on the final loss. Detach decoder weight when calculating l1 regularization so that it doesn't factor in backprop"
 
 if not VERSION or not DESC:
     raise ValueError("Please set VERSION and DESC")
@@ -39,15 +40,18 @@ def collate_fn(*args, **kwargs):
 # model = CrossCoderV1ENormalizeKaimingInitTranspose(
 #     n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.08
 # )
-model = V1FNoWdecInReg(
+# model = V1FNoWdecInReg(
+#     n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.08
+# )
+model = V1GDetachWdec(
     n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.08
 )
 logger = TensorBoardLogger(save_dir=Path.cwd(), name="logs", version=VERSION)
 ckpt_callback = ModelCheckpoint(train_time_interval=timedelta(minutes=30))
 # tb_logger = pl_loggers.TensorBoardLogger(save_dir=Path.cwd(), name="logs")
 train_dataset = IntermediateStateDataset(
-    path1="/data3/mech/internals/transformer.h.8.npy",
-    path2="/data3/mech/internals/transformer.h.9.npy",
+    path1="/data2/mech/internals/transformer.h.8.npy",
+    path2="/data2/mech/internals/transformer.h.9.npy",
 )
 
 
