@@ -342,6 +342,11 @@ class V1FNoWdecInReg(CrossCoderV1ENormalizeKaimingInitTranspose):
 
 
 class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
+
+    def __init__(self, n_hidden, n_features, n_layers, desc, dec_init_norm, lmb=1):
+        super().__init__(n_hidden, n_features, n_layers, desc, dec_init_norm)
+        self.lmb = lmb
+
     def training_step(self, batch, batch_nb):
         x = batch[0]
         act, recon = self.forward(x)
@@ -360,7 +365,7 @@ class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
         reg = reg.mean()
 
         # loss
-        loss = recon_loss + reg
+        loss = recon_loss + self.lmb * reg
         if batch_nb % 10 == 0:
             self.log("loss", loss.item())
             self.log("recon", recon_loss.item())

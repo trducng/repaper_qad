@@ -40,6 +40,7 @@
     - [ ] Add lr scheduler
     - [ ] Add lambda coefficient scheduler
     - [ ] Clip grad norm
+- [ ] Run non-detach with different dec_init_norm value
 - [ ] Experiment management system, where you can submit your job queue
     - [ ] Can get some hands on experience with Slurm
     - Experiment management is quite tricky:
