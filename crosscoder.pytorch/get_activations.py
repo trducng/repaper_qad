@@ -35,7 +35,17 @@ output2, state2 = inspector.run(
     _state=state,
 )
 
+#### generation
+inspector.state.clear()
+output_ori = inspector._model.generate("I love the blue sky")
+state_ori = inspector.state
 
+inspector.op_params = {op_id: op.run_params(feature_idx=0, increase=0.1)}
+output = inspector._model.generate("I love the blue sky")
+state = inspector.state
 
+inspector.op_params = {op_id: op.run_params(feature_idx=0, increase=0.2)}
+output2 = inspector._model.generate("I love the blue sky")
+state2 = inspector.state
 
 # cache the model (usually, if you run from output to input, you can efficiently know which one to use cache, which one to run)
