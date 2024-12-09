@@ -13,6 +13,7 @@ import lightning as L
 
 from metrics import L0, DeadNeurons, ExplainedVariance
 
+
 class CrossCoderV1(L.LightningModule):
     def __init__(self, n_hidden, n_features, n_layers, desc):
         super().__init__()
@@ -140,13 +141,12 @@ class CrossCoderRef(L.LightningModule):
                 torch.empty(self._feature_dim, 2, self._hidden_dim, dtype=self._dtype),
             )
         )
-        self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=-1, keepdim=True) * dec_init_norm
+        self.W_dec.data = (
+            self.W_dec.data / self.W_dec.data.norm(dim=-1, keepdim=True) * dec_init_norm
+        )
         # TODO: what is the purpose of this transpose of making it balance. Virtually nothing?
         # TODO: look at the role of `dec_init_norm`
-        self.W_enc.data = einops.rearrange(
-            self.W_dec.data.clone(),
-            "f l h -> l h f"
-        )
+        self.W_enc.data = einops.rearrange(self.W_dec.data.clone(), "f l h -> l h f")
         self.b_enc = nn.Parameter(torch.zeros(self._feature_dim, dtype=self._dtype))
         self.b_dec = nn.Parameter(torch.zeros((2, self._hidden_dim), dtype=self._dtype))
         self.feat_metrics = [L0(), DeadNeurons()]
@@ -184,10 +184,10 @@ class CrossCoderRef(L.LightningModule):
         loss_per_batch = einops.reduce(diff, "b l h -> b", "sum")
         recon_loss = loss_per_batch.mean()
 
-        W_dec_norm = self.W_dec.norm(p=1, dim=2)    # n_features, n_layers
-        W_dec_norm = einops.reduce(W_dec_norm, "f l -> f", "sum")   # n_features
-        reg = W_dec_norm * act   # n_feat * n_batch, n_feat -> n_batch, n_feat
-        reg = reg.sum(dim=1)    # n_batch
+        W_dec_norm = self.W_dec.norm(p=1, dim=2)  # n_features, n_layers
+        W_dec_norm = einops.reduce(W_dec_norm, "f l -> f", "sum")  # n_features
+        reg = W_dec_norm * act  # n_feat * n_batch, n_feat -> n_batch, n_feat
+        reg = reg.sum(dim=1)  # n_batch
         reg = reg.mean()
 
         loss = recon_loss + reg
@@ -235,6 +235,7 @@ class CrossCoderV1A(CrossCoderV1):
 
     Next step: try to balance the encoder and decoder weight.
     """
+
     def training_step(self, batch, batch_nb):
         x = batch[0]
         act, recon = self.forward(x)
@@ -248,7 +249,7 @@ class CrossCoderV1A(CrossCoderV1):
         W_dec_norm = self.W_dec.norm(p=1, dim=2)  # n_layers, n_features
         W_dec_sum = W_dec_norm.sum(dim=0)  # n_features
         reg = W_dec_sum * act  # n_batch, n_features
-        reg = reg.sum(dim=1)   # n_batch
+        reg = reg.sum(dim=1)  # n_batch
         reg = reg.mean()
 
         # loss
@@ -269,6 +270,7 @@ class CrossCoderV1B(CrossCoderV1):
     It seems transposing the encoder and decoder make no difference. Yes, why should it
     be when the transpose operation is not a reversible operation.
     """
+
     def __init__(self, n_hidden, n_features, n_layers, desc):
         super().__init__(n_hidden, n_features, n_layers, desc)
         self.W_enc_1.data = self.W_dec.data[0].T.clone()
@@ -276,8 +278,8 @@ class CrossCoderV1B(CrossCoderV1):
 
 
 class CrossCoderV1C(CrossCoderV1A):
-    """Balance the encoder and decoder weight, from improved loss calculation A version
-    """
+    """Balance the encoder and decoder weight, from improved loss calculation A version"""
+
     def __init__(self, n_hidden, n_features, n_layers, desc):
         super().__init__(n_hidden, n_features, n_layers, desc)
         self.W_enc_1.data = self.W_dec.data[0].T.clone()
@@ -286,6 +288,7 @@ class CrossCoderV1C(CrossCoderV1A):
 
 class CrossCoderV1DUseKamingInitTranspose(CrossCoderV1A):
     """Surprisingly it has 5000 dead neurons"""
+
     def reset_parameters(self) -> None:
         nn.init.kaiming_uniform_(self.W_enc_1.T, nonlinearity="relu")
         nn.init.kaiming_uniform_(self.W_enc_2.T, nonlinearity="relu")
@@ -295,7 +298,7 @@ class CrossCoderV1DUseKamingInitTranspose(CrossCoderV1A):
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         nn.init.uniform_(self.b_enc, -bound, bound)
 
-        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W_dec[:,0,:].T)
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W_dec[:, 0, :].T)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         nn.init.uniform_(self.b_dec, -bound, bound)
 
@@ -308,6 +311,7 @@ class CrossCoderV1ENormalizeKaimingInitTranspose(CrossCoderV1DUseKamingInitTrans
 
     It seems to be important to normalize the weight, so that it allow for a good norm.
     """
+
     def __init__(self, n_hidden, n_features, n_layers, desc, dec_init_norm):
         self.dec_init_norm = dec_init_norm
         super().__init__(n_hidden, n_features, n_layers, desc)
@@ -315,7 +319,11 @@ class CrossCoderV1ENormalizeKaimingInitTranspose(CrossCoderV1DUseKamingInitTrans
 
     def reset_parameters(self):
         super().reset_parameters()
-        self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=1, keepdim=True) * self.dec_init_norm
+        self.W_dec.data = (
+            self.W_dec.data
+            / self.W_dec.data.norm(dim=1, keepdim=True)
+            * self.dec_init_norm
+        )
 
 
 class V1FNoWdecInReg(CrossCoderV1ENormalizeKaimingInitTranspose):
@@ -329,7 +337,7 @@ class V1FNoWdecInReg(CrossCoderV1ENormalizeKaimingInitTranspose):
         recon_loss = loss_per_batch.mean()
 
         # regularization term
-        reg = act.sum(dim=1)   # n_batch
+        reg = act.sum(dim=1)  # n_batch
         reg = reg.mean()
 
         # loss
@@ -343,9 +351,15 @@ class V1FNoWdecInReg(CrossCoderV1ENormalizeKaimingInitTranspose):
 
 class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
 
-    def __init__(self, n_hidden, n_features, n_layers, desc, dec_init_norm, lmb=1):
+    def __init__(
+        self, n_hidden, n_features, n_layers, desc, dec_init_norm, lmb=1.0, lr=1e-4
+    ):
         super().__init__(n_hidden, n_features, n_layers, desc, dec_init_norm)
         self.lmb = lmb
+        self.lr = lr
+
+    def configure_optimizers(self):
+        return optim.Adam(self.parameters(), lr=self.lr)
 
     def training_step(self, batch, batch_nb):
         x = batch[0]
@@ -358,10 +372,10 @@ class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
 
         # regularization term
         W_dec = self.W_dec.detach()
-        W_dec_norm = W_dec.norm(p=1, dim=2)  # n_layers, n_features
+        W_dec_norm = W_dec.norm(p=2, dim=2)  # n_layers, n_features
         W_dec_sum = W_dec_norm.sum(dim=0)  # n_features
         reg = W_dec_sum * act  # n_batch, n_features
-        reg = reg.sum(dim=1)   # n_batch
+        reg = reg.sum(dim=1)  # n_batch
         reg = reg.mean()
 
         # loss

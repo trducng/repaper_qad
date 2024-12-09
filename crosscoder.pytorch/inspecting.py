@@ -34,4 +34,11 @@ def activated_segments(inspector, token_loader, feat_idx, ctx_len, max_segments=
 
 
 def steer_model(crosscoder, inspector, token_loaders, segments):
-    pass
+    """Steer the model when a feature is activated"""
+    ...
+
+
+def get_features_idx(crosscoder, features, corpus, tokens):
+    """Get the features of token from the corpus"""
+    ...
+

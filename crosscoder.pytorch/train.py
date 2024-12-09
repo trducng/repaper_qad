@@ -22,8 +22,8 @@ from models import (
     V1GDetachWdec
 )
 
-VERSION = "V1GDetachWdec0.1"
-DESC = "Reduce the effect of regularization term on the final loss. Detach decoder weight when calculating l1 regularization so that it doesn't factor in backprop"
+VERSION = "V1GDetachWdecLmd0.01LR5e-4"
+DESC = "Reduce the effect of regularization term on the final loss. Boost learning rate. Detach decoder weight when calculating l1 regularization so that it doesn't factor in backprop"
 
 if not VERSION or not DESC:
     raise ValueError("Please set VERSION and DESC")
@@ -44,14 +44,17 @@ def collate_fn(*args, **kwargs):
 #     n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.08
 # )
 model = V1GDetachWdec(
-    n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.08
+    n_features=768 * 16, n_hidden=768, n_layers=2, desc=DESC, dec_init_norm=0.08, lmb=0.001, lr=5e-4
 )
 logger = TensorBoardLogger(save_dir=Path.cwd(), name="logs", version=VERSION)
-ckpt_callback = ModelCheckpoint(train_time_interval=timedelta(minutes=30))
+ckpt_callback = ModelCheckpoint(
+    train_time_interval=timedelta(minutes=15),
+    save_on_train_epoch_end=True,
+)
 # tb_logger = pl_loggers.TensorBoardLogger(save_dir=Path.cwd(), name="logs")
 train_dataset = IntermediateStateDataset(
-    path1="/data2/mech/internals/transformer.h.8.npy",
-    path2="/data2/mech/internals/transformer.h.9.npy",
+    path1="/data3/mech/internals/transformer.h.8.npy",
+    path2="/data3/mech/internals/transformer.h.9.npy",
 )
 
 
@@ -69,7 +72,7 @@ trainer.fit(
     train_dataloaders=[
         torch.utils.data.DataLoader(
             train_dataset,
-            batch_size=16,
+            batch_size=32,
             collate_fn=collate_fn,
             num_workers=4,
             pin_memory=True,
@@ -82,4 +85,5 @@ trainer.fit(
             num_workers=4,
         )
     ],
+    # ckpt_path="/data2/mech/logs/V1GDetachWdec0.001/checkpoints/epoch=1-step=3784.ckpt",
 )

@@ -41,6 +41,8 @@
     - [ ] Add lambda coefficient scheduler
     - [ ] Clip grad norm
 - [ ] Run non-detach with different dec_init_norm value
+- [ ] Need to improve the reconstruction so that it can effectively recovers the original input.
+- [ ] Use the reconstructed activations during text generation.
 - [ ] Experiment management system, where you can submit your job queue
     - [ ] Can get some hands on experience with Slurm
     - Experiment management is quite tricky:
@@ -57,16 +59,26 @@
     - You can list hardware accelerators on multiple machines.
     - You can push job so that it will be executed in a different machines.
     - Sounds like a more flexible vast.ai or prime intellect, or petals.
+- [ ] Prepare a full dataset.
+- [ ] Run from the full dataset. -> Can implement and try out now. The full dataset is huge, so a partial dataset can be considered a lot.
+In fact, you can try out now at the moment, and then gradually add more data during training.
+- [ ] Load the binary dataset randomly.
+- [ ] Preliminary implement the steering capability to try this out.
+- [ ] Change the separator to 65535, because the endoftext token exists in the dataset.
+  - 00.jsonl at line 2008
 
+====
+Number of data:
 
-## Rerun with correct dataloader
-```
-===
-CrossCoderV1ENormalizeKaimingInitTranspose0.08-2
-Epoch 0: 100%|█████████████████████████████████████████████████| 3782/3782 [26:02<00:00,  2.42it/s, v_num=08-2{'total_inactive': 0, 'mean_active': 627.482666015625, 'mean_active_pct': 0.05106467008590698, 'max_active': 4927, 'max_active_pct': 0.4009602864583333, 'min_active': 0, 'min_active_pct': 0.0, 'total_dead_neurons': 0, 'total_neurons': 12288, 'pct_dead_neurons': 0.0, 'mean_explained_variance': 0.5863010192948266, 'mean_explained_variance_a': 0.5861430729915584, 'mean_explained_variance_b': 0.585623548583475, 'residual': 6.7730317}
-Epoch 1: 100%|█████████████████████████████████████████████████| 3782/3782 [25:41<00:00,  2.45it/s, v_num=08-2{'total_inactive': 0, 'mean_active': 245.587890625, 'mean_active_pct': 0.01998599370320638, 'max_active': 3659, 'max_active_pct': 0.2977701822916667, 'min_active': 0, 'min_active_pct': 0.0, 'total_dead_neurons': 32, 'total_neurons': 12288, 'pct_dead_neurons': 0.0026041666666666665, 'mean_explained_variance': 0.6309540859530341, 'mean_explained_variance_a': 0.6303754338082633, 'mean_explained_variance_b': 0.6306368779146244, 'residual': 6.034538}
-Epoch 2: 100%|█████████████████████████████████████████████████| 3782/3782 [25:46<00:00,  2.45it/s, v_num=08-2{'total_inactive': 0, 'mean_active': 132.14794921875, 'mean_active_pct': 0.010754227638244629, 'max_active': 1688, 'max_active_pct': 0.13736979166666666, 'min_active': 0, 'min_active_pct': 0.0, 'total_dead_neurons': 40, 'total_neurons': 12288, 'pct_dead_neurons': 0.0032552083333333335, 'mean_explained_variance': 0.6719320795924736, 'mean_explained_variance_a': 0.6723307539715931, 'mean_explained_variance_b': 0.6709001010078673, 'residual': 5.3785796}
-=== CrossCoderV1ACheckDeadNeurons-2
-Epoch 0: 100%|█████████████████████████████████████████████████| 7563/7563 [33:20<00:00,  3.78it/s, v_num=ns-2{'total_inactive': 0, 'mean_active': 315.194580078125, 'mean_active_pct': 0.02565060059229533, 'max_active': 6573, 'max_active_pct': 0.534912109375, 'min_active': 0, 'min_active_pct': 0.0, 'total_dead_neurons': 0, 'total_neurons': 12288, 'pct_dead_neurons': 0.0, 'mean_explained_variance': 0.6211192809793032, 'mean_explained_variance_a': 0.6211755390002048, 'mean_explained_variance_b': 0.6202724845608312, 'residual': 6.186629}
+- 00.jsonl: 5899215
+- 07.jsonl: 5901316
+- 28.jsonl: 5900136
+- 16.jsonl: 5900781
 
-```
+====
+
+It might be naive to expect the reconstructed activations can be close to the original input, when the intermediate features are sparse. Imagine, if you compress the original activations, from 768 to 40, and then you have to accurately reconstruct into 768 activations -> Sounds like possible. Another question is which 40 features that the model choose to optimize.
+
+<?Q> Along the way, does the training increase the absolute value of any feature, or it just gradually and consistently scalp down the features whether or not it hurts model understanding?
+
+<?Q> What if we just ignore negative values, rather than clip them to zero with Relu. Maybe doing so can help with gradient?

@@ -98,19 +98,19 @@ class L0(Metrics):
         self.total = 0
         self.n_instances = 0
         self.max_active = 0
-        self.min_active = 0
+        self.min_active = float("inf")
 
-    def update(self, feat):
+    def update(self, feat: torch.Tensor):
         """feat has shape n x c x f"""
         self.feat_shape = feat.shape[2]
         activated = feat > 0     # n x c x f
-        activated_feats = activated.sum(dim=2).cpu().numpy()    # n x c
+        activated_feats = activated.sum(dim=2)    # n x c
 
-        self.total_inactive += (activated_feats == 0).sum()
-        self.total += activated_feats.sum()
-        self.n_instances += activated_feats.size
-        self.max_active = max(self.max_active, activated_feats.max())
-        self.min_active = min(self.min_active, activated_feats.min())
+        self.total_inactive += (activated_feats == 0).sum().item()
+        self.total += activated_feats.sum().item()
+        self.n_instances += activated_feats.numel()
+        self.max_active = max(self.max_active, activated_feats.max().item())
+        self.min_active = min(self.min_active, activated_feats.min().item())
 
     def finalize(self, result_dict):
         mean = self.total / self.n_instances
@@ -144,7 +144,7 @@ class DeadNeurons(Metrics):
 
     def finalize(self, result_dict):
         if self.count is not None:
-            dead_neurons = (self.count == 0).sum().cpu().item()
+            dead_neurons = (self.count == 0).sum().item()
             self.result = {
                 "total_dead_neurons": dead_neurons,
                 "total_neurons": self.count.shape[0],
