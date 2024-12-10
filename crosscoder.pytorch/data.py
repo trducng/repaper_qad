@@ -436,12 +436,11 @@ if __name__ == "__main__":
     #     "/data2/datasets/thepile/train/02.jsonl",
     #     "/data3/mech/thepile_gpt2_tokenized/train/02.jsonl",
     # )
-    tokenize_file_to_bin(
-        "/data2/datasets/thepile/train/23.jsonl",
-        "/data3/mech/thepile_gpt2_tokenized/train/23.bin",
-        # start_idx=4764323,
-        start_idx=4455766,
-    )
+    # tokenize_file_to_bin(
+    #     "/data2/datasets/thepile/train/25.jsonl",
+    #     "/data3/mech/thepile_gpt2_tokenized/train/25.bin",
+    #     # start_idx=4764323,
+    # )
     # tokenize_directory(
     #     "/data2/datasets/thepile/train/",
     #     "/data3/mech/thepile_gpt2_tokenized/train/",
@@ -483,3 +482,20 @@ if __name__ == "__main__":
     #     annot_path="/data3/mech/thepile_gpt2_tokenized/train/27.annot.json",
     #     bin_path="/data3/mech/thepile_gpt2_tokenized/train/27.bin",
     # )
+
+    annotate_start_end_bytes(
+        "/data3/mech/thepile_gpt2_tokenized/train/16.bin",
+        output_path="/data3/mech/thepile_gpt2_tokenized/train/16.annot.json",
+    )
+    annotate_start_end_bytes(
+        "/data3/mech/thepile_gpt2_tokenized/train/17.bin",
+        output_path="/data3/mech/thepile_gpt2_tokenized/train/17.annot.json",
+    )
+    annotate_start_end_bytes(
+        "/data3/mech/thepile_gpt2_tokenized/train/18.bin",
+        output_path="/data3/mech/thepile_gpt2_tokenized/train/18.annot.json",
+    )
+    annotate_start_end_bytes(
+        "/data3/mech/thepile_gpt2_tokenized/train/20.bin",
+        output_path="/data3/mech/thepile_gpt2_tokenized/train/20.annot.json",
+    )
