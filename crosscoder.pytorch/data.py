@@ -491,11 +491,3 @@ if __name__ == "__main__":
         "/data3/mech/thepile_gpt2_tokenized/train/17.bin",
         output_path="/data3/mech/thepile_gpt2_tokenized/train/17.annot.json",
     )
-    annotate_start_end_bytes(
-        "/data3/mech/thepile_gpt2_tokenized/train/18.bin",
-        output_path="/data3/mech/thepile_gpt2_tokenized/train/18.annot.json",
-    )
-    annotate_start_end_bytes(
-        "/data3/mech/thepile_gpt2_tokenized/train/20.bin",
-        output_path="/data3/mech/thepile_gpt2_tokenized/train/20.annot.json",
-    )
