@@ -439,7 +439,7 @@ if __name__ == "__main__":
     # tokenize_file_to_bin(
     #     "/data2/datasets/thepile/train/25.jsonl",
     #     "/data3/mech/thepile_gpt2_tokenized/train/25.bin",
-    #     # start_idx=4764323,
+    #     start_idx=4549453,
     # )
     # tokenize_directory(
     #     "/data2/datasets/thepile/train/",
@@ -456,11 +456,6 @@ if __name__ == "__main__":
     # for fp in files[26:30]:
     #     print(f"Tokenizing {fp}")
     #     tokenize_file_to_bin(fp, (Path(output_dir) / fp.name).with_suffix(".bin"))
-
-    # annotate_start_end_bytes(
-    #     "/data3/mech/thepile_gpt2_tokenized/train/23.bin",
-    #     output_path="/data3/mech/thepile_gpt2_tokenized/train/23.annot.json",
-    # )
 
     # directory = "/data3/mech/thepile_gpt2_tokenized/train"
     # output_dir = "/data3/mech/thepile_gpt2_tokenized/train"
@@ -484,10 +479,17 @@ if __name__ == "__main__":
     # )
 
     annotate_start_end_bytes(
-        "/data3/mech/thepile_gpt2_tokenized/train/16.bin",
-        output_path="/data3/mech/thepile_gpt2_tokenized/train/16.annot.json",
+        "/data3/mech/thepile_gpt2_tokenized/train/29.bin",
+        output_path="/data3/mech/thepile_gpt2_tokenized/train/29.annot.json",
     )
-    annotate_start_end_bytes(
-        "/data3/mech/thepile_gpt2_tokenized/train/17.bin",
-        output_path="/data3/mech/thepile_gpt2_tokenized/train/17.annot.json",
-    )
+
+    # annotate_start_end_bytes(
+    #     "/data3/mech/thepile_gpt2_tokenized/train/28.bin",
+    #     output_path="/data3/mech/thepile_gpt2_tokenized/train/28.annot.json",
+    # )
+
+    # tokenize_file_to_bin(
+    #     "/data2/datasets/thepile/train/28.jsonl",
+    #     "/data3/mech/thepile_gpt2_tokenized/train/28.bin",
+    #     start_idx=4151730,
+    # )

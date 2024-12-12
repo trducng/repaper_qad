@@ -37,6 +37,7 @@ output2, state2 = inspector.run(
 )
 
 #### generation
+# avoid this approach, too verbose
 inspector.state.clear()
 output_ori = inspector._model.generate("I love the blue sky")
 state_ori = inspector.state
@@ -63,11 +64,11 @@ op = inspector.get_op(op_id)
 
 output_ori, state_ori = inspector.run(
     "I love the blue sky",
-    _op_params=op.run_params(feature_idx=0, increase=0.1),
+    _op_params=op.run_params(feature_idx=0, increase=0.1),   # explicitly stay within single run
     _method="generate",
 )
 
-#### Ideally for cross coder training
+#### Ideally for crosscoder training
 inspector = Inspector(model, tokenizer)
 inspector.add_op(...)  # operation to get intermediate activations
 train_dataloader = DataLoader(data_path, inspector)  # get, and stack
