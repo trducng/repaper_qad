@@ -431,6 +431,19 @@ def check_annot_validity(input_path, annot_path, bin_path):
             raise ValueError(f"Error: {count} != {len(position)}")
 
 
+def count_tokens(path):
+    count_total = 0
+    for fp in sorted(Path(path).glob("*.annot.json")):
+        count_file = 0
+        with open(fp, "r") as fi:
+            position = json.load(fi)
+        for start, end in position:
+            count_file += (end - start) // 2 - 1
+        print(f"{fp.name}: {humanize.intcomma(count_file)}")
+        count_total += count_file
+    print(f"Total: {humanize.intcomma(count_total)}")
+
+
 if __name__ == "__main__":
     # tokenize_file_to_jsonl(
     #     "/data2/datasets/thepile/train/02.jsonl",
@@ -478,10 +491,10 @@ if __name__ == "__main__":
     #     bin_path="/data3/mech/thepile_gpt2_tokenized/train/27.bin",
     # )
 
-    annotate_start_end_bytes(
-        "/data3/mech/thepile_gpt2_tokenized/train/29.bin",
-        output_path="/data3/mech/thepile_gpt2_tokenized/train/29.annot.json",
-    )
+    # annotate_start_end_bytes(
+    #     "/data3/mech/thepile_gpt2_tokenized/train/29.bin",
+    #     output_path="/data3/mech/thepile_gpt2_tokenized/train/29.annot.json",
+    # )
 
     # annotate_start_end_bytes(
     #     "/data3/mech/thepile_gpt2_tokenized/train/28.bin",
@@ -493,3 +506,5 @@ if __name__ == "__main__":
     #     "/data3/mech/thepile_gpt2_tokenized/train/28.bin",
     #     start_idx=4151730,
     # )
+
+    count_tokens("/data3/mech/thepile_gpt2_tokenized/train")

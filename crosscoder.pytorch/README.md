@@ -25,7 +25,6 @@
 - [ ] The reconstruction is shit. It's even worse than just switching layer.
     - On median, an input has value of 1.2796. On median, we mis-predict by 1.2575. So, we are off by nearly 100%.
     - [ ] Don't involve the decoder in the reg section
-- [ ] Incorprate the explained variance into metrics
 - [x] Check if loading dataset is efficient
     - It's currently not. It has error in that even doesn't iterate through the whole dataset.
     - You want to achieve:
@@ -59,13 +58,17 @@
     - You can list hardware accelerators on multiple machines.
     - You can push job so that it will be executed in a different machines.
     - Sounds like a more flexible vast.ai or prime intellect, or petals.
-- [ ] Prepare a full dataset.
+- [x] Prepare a full dataset.
+- [x] Count the total number of tokens
+    - Around 9.7 - 9.8 billion tokens  per file
+    - So around 294 billion tokens in total for 30 files
 - [ ] Run from the full dataset. -> Can implement and try out now. The full dataset is huge, so a partial dataset can be considered a lot.
 In fact, you can try out now at the moment, and then gradually add more data during training.
 - [ ] Load the binary dataset randomly.
 - [ ] Preliminary implement the steering capability to try this out.
-- [ ] Change the separator to 65535, because the endoftext token exists in the dataset.
-  - 00.jsonl at line 2008
+- [x] Change the separator to 65535, because the endoftext token exists in the dataset.
+    - Not important.
+      - 00.jsonl at line 2008
 
 ====
 Number of data:
