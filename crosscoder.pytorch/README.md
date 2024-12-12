@@ -21,7 +21,9 @@
     - @Result:
         - 0.12: Dead neurons become 65. It is an acceptable number. 0.0228
           percent of features are activated on average.
-        - 
+- [ ] The reconstruction is shit. It's even worse than just switching layer.
+    - On median, an input has value of 1.2796. On median, we mis-predict by 1.2575. So, we are off by nearly 100%.
+    - [ ] Don't involve the decoder in the reg section
 - [ ] Incorprate the explained variance into metrics
 - [ ] Check if loading dataset is efficient
     - It's currently not. It has error in that even doesn't iterate through the whole dataset.

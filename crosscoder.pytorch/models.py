@@ -345,25 +345,25 @@ class CrossCoderOp(Op):
     def forward(self, inspector: Inspector, name, module, args, kwargs, output):
         hidden_acts = torch.stack(
             [
-                inspector.state.crosscoder_hidden_acts[name].squeeze()
+                inspector.state["crosscoder_hidden_acts"][name].squeeze()
                 for name in self._layers
             ],
             dim=1,
         )
         feat = self._crosscoder.forward(hidden_acts.to(self._crosscoder.device))
-        setattr(inspector.state, self._name, feat)
+        inspector.state[self._name] = feat
         return output
 
     def add(self, inspector):
-        inspector.state.create_section(self._name)
-        inspector.state.create_section(f"{self._name}_hidden_acts", default={})
+        inspector.state.register(self._name)
+        inspector.state.register(f"{self._name}_hidden_acts", default={})
         for name, processor in self._layers.items():
             id_ = inspector.add_op(name, Hook(forward=self.extract_layer(processor)))
             self._ids.append(id_)
 
     def remove(self, inspector):
-        inspector.state.remove_section(self._name)
-        inspector.state.remove_section(f"{self._name}_hidden_acts")
+        inspector.state.deregister(self._name)
+        inspector.state.deregister(f"{self._name}_hidden_acts")
         for id_ in self._ids:
             inspector.remove_op(id_)
 

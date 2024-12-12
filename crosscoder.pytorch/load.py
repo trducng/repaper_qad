@@ -20,7 +20,7 @@ from dawnet.utils.notebook import run_in_process, is_ready
 from dawnet.utils.numpy import NpyAppendArray
 
 from data import IntermediateStateDataset
-from models import CrossCoderV1, CrossCoderOp
+from models import CrossCoderV1ENormalizeKaimingInitTranspose, CrossCoderOp
 from metrics import sparsity
 
 model_id = "openai-community/gpt2"
@@ -28,7 +28,9 @@ model_id = "openai-community/gpt2"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
 
-crosscoder = CrossCoderV1.load_from_checkpoint("/data2/mech/logs/temp.ckpt").cuda()
+crosscoder = CrossCoderV1ENormalizeKaimingInitTranspose.load_from_checkpoint(
+    "/home/john/crosscoders/CrossCoderV1ENormalizeKaimingInitTranspose0.08-2/checkpoints/epoch=2-step=7565.ckpt"
+).cuda()
 inspector = Inspector(model)
 
 op_id = inspector.add_op(
@@ -42,6 +44,15 @@ op_id = inspector.add_op(
         name="crosscoder",
     ),
 )
+inspector.add_op(
+    "transformer.h.7",
+    op.CacheModuleInputOutput(no_output=True, input_getter=lambda a, kw: a[0]),
+)
+inspector.add_op(
+    "transformer.h.8",
+    op.CacheModuleInputOutput(no_output=True, input_getter=lambda a, kw: a[0]),
+)
 
 input_ids = tokenizer.encode("I love the blue sky", return_tensors="pt").cuda()
 output, state = inspector.run(input_ids)
+feat, recon = state['crosscoder']
