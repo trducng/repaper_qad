@@ -22,9 +22,6 @@
     - @Result:
         - 0.12: Dead neurons become 65. It is an acceptable number. 0.0228
           percent of features are activated on average.
-- [ ] The reconstruction is shit. It's even worse than just switching layer.
-    - On median, an input has value of 1.2796. On median, we mis-predict by 1.2575. So, we are off by nearly 100%.
-    - [ ] Don't involve the decoder in the reg section
 - [x] Check if loading dataset is efficient
     - It's currently not. It has error in that even doesn't iterate through the whole dataset.
     - You want to achieve:
@@ -35,6 +32,10 @@
         - Add more RAM to reduce the frequency of copying data.
     - @RESULT: fix a bug in data loading that prevents the whole dataset from being completely iterated.
 - [x] Incorprate the explained variance into metrics
+- [ ] Rerun trainin V2. It has training metric tracking and correct validation dataset
+- [ ] The reconstruction is shit. It's even worse than just switching layer.
+    - On median, an input has value of 1.2796. On median, we mis-predict by 1.2575. So, we are off by nearly 100%.
+    - [ ] Don't involve the decoder in the reg section
 - Ideas to play around:
     - [ ] Add lr scheduler
     - [ ] Add lambda coefficient scheduler
@@ -64,7 +65,15 @@
     - So around 294 billion tokens in total for 30 files
 - [ ] Run from the full dataset. -> Can implement and try out now. The full dataset is huge, so a partial dataset can be considered a lot.
 In fact, you can try out now at the moment, and then gradually add more data during training.
-- [ ] Load the binary dataset randomly.
+    - [x] How much text lines can an LLM process
+       - 6 lines a batch, at 1024 context length
+    - [ ] Set maximum number of tokens: 1 billion token
+    - Train inside a "while" loop.
+    - Data is stored inside a buffer (ideally VRAM), and then consumed immediately, kind of JIT
+    - Select batch of 6, with 1024 context lenght.
+    - Minimize costly data transfer.
+    - Free up VRAM.
+- [x] Load the binary dataset randomly.
 - [ ] Preliminary implement the steering capability to try this out.
 - [x] Change the separator to 65535, because the endoftext token exists in the dataset.
     - Not important.

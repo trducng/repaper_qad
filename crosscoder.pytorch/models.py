@@ -7,11 +7,12 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 from dawnet.inspector import Op, Inspector
+from dawnet import op
 from dawnet.op import Hook
 
 import lightning as L
 
-from metrics import L0, DeadNeurons, ExplainedVariance
+from metrics import L0, DeadNeurons, ExplainedVariance, ExplainedVarianceV2
 
 
 class CrossCoderV1(L.LightningModule):
@@ -350,7 +351,6 @@ class V1FNoWdecInReg(CrossCoderV1ENormalizeKaimingInitTranspose):
 
 
 class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
-
     def __init__(
         self, n_hidden, n_features, n_layers, desc, dec_init_norm, lmb=1.0, lr=1e-4
     ):
@@ -385,6 +385,157 @@ class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
             self.log("recon", recon_loss.item())
             self.log("reg", reg.item())
         return loss
+
+
+class V2(L.LightningModule):
+    """This implement starts from CrossCoderV1A, and add in the original model"""
+    def __init__(self, n_hidden, n_features, model, layers, desc):
+        super().__init__()
+
+        self._n_hidden = n_hidden
+        self._n_features = n_features
+        self._n_layers = len(layers)
+        self.layers = layers
+        self.W_enc = nn.Parameter(torch.empty(self._n_layers, n_hidden, n_features))
+        self.b_enc = nn.Parameter(torch.empty(n_features))
+        self.W_dec = nn.Parameter(torch.empty(self._n_layers, n_features, n_hidden))
+        self.b_dec = nn.Parameter(torch.empty(self._n_layers, n_hidden))
+
+        self.loss = nn.MSELoss()
+        self.reset_parameters()
+        self.save_hyperparameters(ignore=["model"])
+        self.feat_metrics = [L0(), DeadNeurons()]
+        self.recon_metrics = [ExplainedVarianceV2()]
+        self.inspector = Inspector(model)
+        for name in layers:
+            self.inspector.add_op(
+                name,
+                op.CacheModuleInputOutput(no_input=True, output_getter=lambda x: x[0]),
+            )
+        # training time metrics
+        self.dead_neurons_tracker = DeadNeurons()
+        self.dead_neurons_tracker.initiate()
+        self.l0_tracker = L0()
+        self.l0_tracker.initiate()
+
+    def get_hidden(self, x):
+        """
+        x has shape: n_batch x ctx_len
+        output has shape: n_batch x n_layers x ctx_len x n_hidden
+        """
+        with torch.no_grad():
+            _, state = self.inspector.run(x)
+            acts = torch.stack([state["output"][name] for name in self.layers], dim=1)
+        return acts
+
+    def encode(self, x):
+        """x has shape: n_batch x n_layers x n_hidden"""
+        z = einops.einsum(x, self.W_enc, "b l h, l h f -> b f")
+        z = z + self.b_enc  # n_batch, n_features
+        z = nn.functional.relu(z)
+        return z  # n_batch, n_features
+
+    def decode(self, a):
+        """a has shape: n_batch x n_features"""
+        z = torch.matmul(a, self.W_dec)  # n_layers, n_batch, n_hidden
+        n_layers, n_batch, n_hidden = z.shape
+        z = z.view(n_batch, n_layers, n_hidden)
+        y = z + self.b_dec  # n_batch, n_layers, n_hidden
+        return y
+
+    def forward(self, x):
+        """x has shape: n_batch x ctx_len
+            n_layers x n_hidden"""
+        hidden = self.get_hidden(x)   # n_batch, n_layers, ctx_len, n_hidden
+        reshaped_hidden = einops.rearrange(hidden, "b l c h -> (b c) l h") # n_batch, layers, hidden
+        a_ = self.encode(reshaped_hidden)  # n_batch, n_features
+        y = self.decode(a_)  # n_batch, n_layers, n_hidden
+        y = einops.rearrange(y, "(b c) l h -> b l c h", c=hidden.shape[2])  # n_batch, layers, ctx_len, hidden
+        return hidden, a_, y
+
+    def configure_optimizers(self):
+        return optim.Adam(self.parameters(), lr=1e-4)
+
+    def training_step(self, batch, batch_nb):
+        x = batch[0]
+        hidden, act, recon = self.forward(x)
+
+        # reconstruction mse term
+        diff = (recon - hidden).pow(2)
+        loss_per_batch = einops.reduce(diff, "b l c h -> (b c)", "sum")
+        recon_loss = loss_per_batch.mean()
+
+        # regularization term
+        W_dec_norm = self.W_dec.norm(p=1, dim=2)  # n_layers, n_features
+        W_dec_sum = W_dec_norm.sum(dim=0)  # n_features
+        reg = W_dec_sum * act  # n_batch, n_features
+        reg = reg.sum(dim=1)  # n_batch
+        reg = reg.mean()
+
+        # loss
+        loss = recon_loss + reg
+        if batch_nb % 10 == 0:
+            self.log("loss", loss.item())
+            self.log("recon", recon_loss.item())
+            self.log("reg", reg.item())
+
+        with torch.no_grad():
+            self.dead_neurons_tracker.update(act)
+            if batch_nb % 100 == 0:
+                self.l0_tracker.update(act)
+
+        if batch_nb % 1000 == 0:
+            result_dict = {}
+            self.dead_neurons_tracker.finalize(result_dict)
+            self.l0_tracker.finalize(result_dict)
+            new_result_dict = {f"train/{k}": v for k, v in result_dict.items()}
+            del result_dict
+            self.log_dict(new_result_dict)
+            del new_result_dict
+
+        if batch_nb % 12000 == 0:
+            # Restart the tracker
+            self.dead_neurons_tracker.initiate()
+
+
+        return loss
+
+    def on_validation_epoch_start(self):
+        for metric in self.feat_metrics:
+            metric.initiate()
+        for metric in self.recon_metrics:
+            metric.initiate()
+
+    def validation_step(self, batch, batch_nb):
+        """Work on the validation"""
+        n, c = batch.shape
+        hidden, feat, recon = self.forward(batch)
+        feat = feat.reshape(n, c, -1)
+        for metric in self.feat_metrics:
+            metric.update(feat)
+        for metric in self.recon_metrics:
+            metric.update(hidden, recon)
+
+    def on_validation_epoch_end(self):
+        result = {}
+        for metric in self.feat_metrics:
+            metric.finalize(result)
+        for metric in self.recon_metrics:
+            metric.finalize(result)
+        self.log_dict(result)
+        print(result)
+
+    def reset_parameters(self) -> None:
+        nn.init.kaiming_uniform_(self.W_enc, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.W_dec, a=math.sqrt(5))
+
+        _, fan_in = nn.init._calculate_fan_in_and_fan_out(self.W_enc)
+        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+        nn.init.uniform_(self.b_enc, -bound, bound)
+
+        _, fan_in = nn.init._calculate_fan_in_and_fan_out(self.W_dec)
+        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+        nn.init.uniform_(self.b_dec, -bound, bound)
 
 
 class CrossCoderOp(Op):

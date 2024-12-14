@@ -1,6 +1,7 @@
 """Train a crosscoder, and then hook that crosscoder to a model through an inspector
 """
 import numpy as np
+import einops
 import torch
 from tqdm import tqdm
 
@@ -167,6 +168,53 @@ class ExplainedVariance(Metrics):
 
     def update(self, x, recon):
         """Each has shape b x l x f"""
+        residual = (x.float() - recon.float()) ** 2
+        x_var = (x - x.mean(dim=-1, keepdim=True)) ** 2
+
+        explained_variance = (
+            1
+            - residual.sum(dim=(1, 2)) / (x_var.sum(dim=(1, 2)) + 1e-8)
+        ).mean().item()
+        explained_variance_a = (
+            1
+            - residual[:,0,:].sum(dim=1) / (x_var[:,0,:].sum(dim=1) + 1e-8)
+        ).mean().item()
+        explained_variance_b = (
+            1
+            - residual[:,1,:].sum(dim=1) / (x_var[:,1,:].sum(dim=1) + 1e-8)
+        ).mean().item()
+
+        self.residual.append(residual.cpu().numpy().mean())
+        self.mean_explained_variance.append(explained_variance)
+        self.mean_explained_variance_a.append(explained_variance_a)
+        self.mean_explained_variabce_b.append(explained_variance_b)
+
+    def finalize(self, result_dict):
+        result_dict.update({
+            "mean_explained_variance": np.mean(self.mean_explained_variance),
+            "mean_explained_variance_a": np.mean(self.mean_explained_variance_a),
+            "mean_explained_variance_b": np.mean(self.mean_explained_variabce_b),
+            "residual": np.mean(self.residual),
+        })
+
+
+class ExplainedVarianceV2(Metrics):
+    def __init__(self):
+        super().__init__()
+        self.name = "explained_variance"
+
+    def initiate(self):
+        super().initiate()
+        self.mean_explained_variance = []
+        self.mean_explained_variance_a = []
+        self.mean_explained_variabce_b = []
+        self.residual = []
+
+    def update(self, x, recon):
+        """Each has shape b x l x f"""
+        x = einops.rearrange(x, "b l c f -> (b c) l f")
+        recon = einops.rearrange(recon, "b l c f -> (b c) l f")
+
         residual = (x.float() - recon.float()) ** 2
         x_var = (x - x.mean(dim=-1, keepdim=True)) ** 2
 

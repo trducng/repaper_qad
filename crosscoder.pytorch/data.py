@@ -9,8 +9,10 @@ import humanize
 import numpy as np
 import torch
 from tqdm import tqdm
+from torch.utils.data import Dataset
 
 from dawnet import Inspector
+from dawnet import op
 
 
 def count_lines_file(fp):
@@ -444,7 +446,49 @@ def count_tokens(path):
     print(f"Total: {humanize.intcomma(count_total)}")
 
 
-if __name__ == "__main__":
+def block_of_tokens(input_dir, output_file, total: int = int(1e9 / 1024 + 1)):
+    from dawnet.utils.numpy import NpyAppendArray
+
+    count = 0
+    with NpyAppendArray(output_file) as fo:
+        with tqdm(total=total) as pbar:
+            for fp in sorted(Path(input_dir).glob("*.bin")):
+                with open(fp.with_suffix(".annot.json"), "r") as fi:
+                    position = json.load(fi)
+                with open(fp, "rb") as fi:
+                    for start, end in position:
+                        if (end - start) // 2 - 1 < 1024:
+                            continue
+                        fi.seek(start)
+                        buffer = fi.read(1024 * 2)
+                        tokens = [
+                            int.from_bytes(buffer[i : i + 2], "big")
+                            for i in range(0, 1024 * 2, 2)
+                        ]
+                        fo.append(np.expand_dims(np.array(tokens, dtype=np.uint16), 0))
+                        count += 1
+                        if count % 1000 == 0:
+                            pbar.update(1000)
+                        if count >= total:
+                            break
+                if count >= total:
+                    break
+
+
+class LoadTokens(Dataset):
+    def __init__(self, path, max_size=None):
+        self.tokens = np.load(path, mmap_mode="r")
+        self.max_size = max_size
+
+    def __len__(self):
+        if self.max_size is None:
+            return self.tokens.shape[0]
+        return min(self.tokens.shape[0], self.max_size)
+
+    def __getitem__(self, idx):
+        return self.tokens[idx]
+
+# if __name__ == "__main__":
     # tokenize_file_to_jsonl(
     #     "/data2/datasets/thepile/train/02.jsonl",
     #     "/data3/mech/thepile_gpt2_tokenized/train/02.jsonl",
@@ -497,14 +541,18 @@ if __name__ == "__main__":
     # )
 
     # annotate_start_end_bytes(
-    #     "/data3/mech/thepile_gpt2_tokenized/train/28.bin",
-    #     output_path="/data3/mech/thepile_gpt2_tokenized/train/28.annot.json",
+    #     "/data3/mech/thepile_gpt2_tokenized/test.bin",
+    #     output_path="/data3/mech/thepile_gpt2_tokenized/test.annot.json",
     # )
 
     # tokenize_file_to_bin(
-    #     "/data2/datasets/thepile/train/28.jsonl",
-    #     "/data3/mech/thepile_gpt2_tokenized/train/28.bin",
-    #     start_idx=4151730,
+    #     "/data2/datasets/thepile/test.jsonl",
+    #     "/data3/mech/thepile_gpt2_tokenized/test.bin",
     # )
 
-    count_tokens("/data3/mech/thepile_gpt2_tokenized/train")
+    # count_tokens("/data3/mech/thepile_gpt2_tokenized/train")
+
+    block_of_tokens(
+        "/data3/mech/thepile_gpt2_tokenized/train",
+        "/data3/mech/thepile_gpt2_tokenized/train.npy",
+    )
