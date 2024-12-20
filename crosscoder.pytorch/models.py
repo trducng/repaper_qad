@@ -11,6 +11,7 @@ from dawnet import op
 from dawnet.op import Hook
 
 import lightning as L
+from lightning.pytorch.utilities import grad_norm
 
 from metrics import L0, DeadNeurons, ExplainedVariance, ExplainedVarianceV2
 
@@ -103,8 +104,11 @@ class CrossCoderV1(L.LightningModule):
             metric.finalize(result)
         for metric in self.recon_metrics:
             metric.finalize(result)
-        self.log_dict(result)
+        new_result = {f"val/{k}": v for k, v in result.items()}
+        self.log_dict(new_result)
         print(result)
+        del result
+        del new_result
 
     def reset_parameters(self) -> None:
         nn.init.kaiming_uniform_(self.W_enc_1, a=math.sqrt(5))
@@ -222,8 +226,11 @@ class CrossCoderRef(L.LightningModule):
             metric.finalize(result)
         for metric in self.recon_metrics:
             metric.finalize(result)
-        self.log_dict(result)
+        new_result = {f"val/{k}": v for k, v in result.items()}
+        self.log_dict(new_result)
         print(result)
+        del result
+        del new_result
 
 
 class CrossCoderV1A(CrossCoderV1):
@@ -389,19 +396,21 @@ class V1GDetachWdec(CrossCoderV1ENormalizeKaimingInitTranspose):
 
 class V2(L.LightningModule):
     """This implement starts from CrossCoderV1A, and add in the original model"""
-    def __init__(self, n_hidden, n_features, model, layers, desc):
+    def __init__(self, n_hidden, n_features, model, layers, desc, lmb=1.0, lr=1e-4):
         super().__init__()
 
         self._n_hidden = n_hidden
         self._n_features = n_features
         self._n_layers = len(layers)
+
+        self._lmb = lmb
+        self._lr = lr
         self.layers = layers
         self.W_enc = nn.Parameter(torch.empty(self._n_layers, n_hidden, n_features))
         self.b_enc = nn.Parameter(torch.empty(n_features))
         self.W_dec = nn.Parameter(torch.empty(self._n_layers, n_features, n_hidden))
         self.b_dec = nn.Parameter(torch.empty(self._n_layers, n_hidden))
 
-        self.loss = nn.MSELoss()
         self.reset_parameters()
         self.save_hyperparameters(ignore=["model"])
         self.feat_metrics = [L0(), DeadNeurons()]
@@ -417,15 +426,15 @@ class V2(L.LightningModule):
         self.dead_neurons_tracker.initiate()
         self.l0_tracker = L0()
         self.l0_tracker.initiate()
+        self._batch_nb = -1
 
     def get_hidden(self, x):
         """
         x has shape: n_batch x ctx_len
         output has shape: n_batch x n_layers x ctx_len x n_hidden
         """
-        with torch.no_grad():
-            _, state = self.inspector.run(x)
-            acts = torch.stack([state["output"][name] for name in self.layers], dim=1)
+        _, state = self.inspector.run(x)
+        acts = torch.stack([state["output"][name] for name in self.layers], dim=1)
         return acts
 
     def encode(self, x):
@@ -446,17 +455,19 @@ class V2(L.LightningModule):
     def forward(self, x):
         """x has shape: n_batch x ctx_len
             n_layers x n_hidden"""
-        hidden = self.get_hidden(x)   # n_batch, n_layers, ctx_len, n_hidden
-        reshaped_hidden = einops.rearrange(hidden, "b l c h -> (b c) l h") # n_batch, layers, hidden
+        with torch.no_grad():
+            hidden = self.get_hidden(x)[:,:,1:,:]   # n_batch, n_layers, ctx_len, n_hidden
+            reshaped_hidden = einops.rearrange(hidden, "b l c h -> (b c) l h") # n_batch, layers, hidden
         a_ = self.encode(reshaped_hidden)  # n_batch, n_features
         y = self.decode(a_)  # n_batch, n_layers, n_hidden
         y = einops.rearrange(y, "(b c) l h -> b l c h", c=hidden.shape[2])  # n_batch, layers, ctx_len, hidden
         return hidden, a_, y
 
     def configure_optimizers(self):
-        return optim.Adam(self.parameters(), lr=1e-4)
+        return optim.Adam(self.parameters(), lr=self._lr)
 
     def training_step(self, batch, batch_nb):
+        self._batch_nb = batch_nb
         x = batch[0]
         hidden, act, recon = self.forward(x)
 
@@ -473,30 +484,40 @@ class V2(L.LightningModule):
         reg = reg.mean()
 
         # loss
-        loss = recon_loss + reg
+        loss = recon_loss + self._lmb * reg
         if batch_nb % 10 == 0:
             self.log("loss", loss.item())
             self.log("recon", recon_loss.item())
             self.log("reg", reg.item())
 
         with torch.no_grad():
-            self.dead_neurons_tracker.update(act)
+            act2 = act.reshape(hidden.shape[0], hidden.shape[2], -1)
+            self.dead_neurons_tracker.update(act2)
             if batch_nb % 100 == 0:
-                self.l0_tracker.update(act)
+                self.l0_tracker.update(act2)
 
-        if batch_nb % 1000 == 0:
-            result_dict = {}
-            self.dead_neurons_tracker.finalize(result_dict)
-            self.l0_tracker.finalize(result_dict)
-            new_result_dict = {f"train/{k}": v for k, v in result_dict.items()}
-            del result_dict
-            self.log_dict(new_result_dict)
-            del new_result_dict
+            if batch_nb % 1000 == 0:
+                # log activation and feature statistics
+                result_dict = {}
+                self.dead_neurons_tracker.finalize(result_dict)
+                self.l0_tracker.finalize(result_dict)
+                new_result_dict = {f"train/{k}": v for k, v in result_dict.items()}
+                del result_dict
+                self.log_dict(new_result_dict)
+                del new_result_dict
 
-        if batch_nb % 12000 == 0:
-            # Restart the tracker
-            self.dead_neurons_tracker.initiate()
+                # log the weights information
+                self.log("train_norm/W_enc", self.W_enc.norm().item())
+                self.log("train_norm/W_dec", self.W_dec.norm().item())
+                self.log("train_norm/b_enc", self.b_enc.norm().item())
+                self.log("train_norm/b_dec", self.b_dec.norm().item())
 
+                # log the grad norm
+
+            if batch_nb % 12000 == 0:
+                # Restart dead neuron tracker
+                self.dead_neurons_tracker.initiate()
+                self.l0_tracker.initiate()
 
         return loss
 
@@ -522,8 +543,11 @@ class V2(L.LightningModule):
             metric.finalize(result)
         for metric in self.recon_metrics:
             metric.finalize(result)
-        self.log_dict(result)
+        new_result = {f"val/{k}": v for k, v in result.items()}
+        self.log_dict(new_result)
         print(result)
+        del result
+        del new_result
 
     def reset_parameters(self) -> None:
         nn.init.kaiming_uniform_(self.W_enc, a=math.sqrt(5))
@@ -537,6 +561,19 @@ class V2(L.LightningModule):
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         nn.init.uniform_(self.b_dec, -bound, bound)
 
+    def on_before_optimizer_step(self, optimizer):
+        if self._batch_nb % 1000 == 0:
+            with torch.no_grad():
+                # self.W_enc.data = self.W_enc.data / self.W_enc.data.norm(dim=1, keepdim=True)
+                # self.W_dec.data = self.W_dec.data / self.W_dec.data.norm(dim=1, keepdim=True)
+                if self.W_enc.grad is not None:
+                    self.log("train_norm/W_enc_grad", self.W_enc.grad.norm().item())
+                if self.W_dec.grad is not None:
+                    self.log("train_norm/W_dec_grad", self.W_dec.grad.norm().item())
+                if self.b_enc.grad is not None:
+                    self.log("train_norm/b_enc_grad", self.b_enc.grad.norm().item())
+                if self.b_dec.grad is not None:
+                    self.log("train_norm/b_dec_grad", self.b_dec.grad.norm().item())
 
 class CrossCoderOp(Op):
     """Create the crosscoder

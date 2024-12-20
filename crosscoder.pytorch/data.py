@@ -552,7 +552,7 @@ class LoadTokens(Dataset):
 
     # count_tokens("/data3/mech/thepile_gpt2_tokenized/train")
 
-    block_of_tokens(
-        "/data3/mech/thepile_gpt2_tokenized/train",
-        "/data3/mech/thepile_gpt2_tokenized/train.npy",
-    )
+    # block_of_tokens(
+    #     "/data3/mech/thepile_gpt2_tokenized/train",
+    #     "/data3/mech/thepile_gpt2_tokenized/train.npy",
+    # )

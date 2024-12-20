@@ -11,8 +11,8 @@ from models import V2
 from data import LoadTokens
 
 
-VERSION = "V2"
-DESC = "Test coupling the base model and the crosscoder in one single implementation"
+VERSION = "V2-RemoveFirstToken-Lambda0.1"
+DESC = "Remove first token as its value is rather abnormal from the rest."
 
 model_id = "openai-community/gpt2"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -23,6 +23,8 @@ crosscoder = V2(
     n_features=768 * 16,
     model=model,
     layers=["transformer.h.7", "transformer.h.8"],
+    lmb=0.1,
+    lr=5e-4,
     desc=DESC,
 ).cuda()
 
@@ -38,28 +40,29 @@ def collate_fn(*args, **kwargs):
 
 
 logger = TensorBoardLogger(save_dir=Path.cwd(), name="logs", version=VERSION)
-ckpt_callback = ModelCheckpoint(
-    train_time_interval=timedelta(minutes=30),
-    save_on_train_epoch_end=True,
-)
+ckpt_callback = ModelCheckpoint(train_time_interval=timedelta(minutes=30))
+ckpt_callback2 = ModelCheckpoint(every_n_epochs=1)
 
 
 class RefreshTrainingMetricCallback(Callback):
     def on_train_epoch_start(self, trainer, pl_module):
-        pl_module.dead_neurons_tracker.initate()
+        pl_module.dead_neurons_tracker.initiate()
         pl_module.l0_tracker.initiate()
 
 
 
 trainer = L.Trainer(
     accelerator="gpu",
-    callbacks=[ckpt_callback, RefreshTrainingMetricCallback()],
+    callbacks=[ckpt_callback, ckpt_callback2, RefreshTrainingMetricCallback()],
     max_epochs=4,
     logger=logger,
-    # fast_dev_run=5
+    val_check_interval=0.25,
+    # overfit_batches=1,
+    # fast_dev_run=5,
     # limit_train_batches=50,
     # limit_val_batches=5,
 )
+# print("Start training")
 
 trainer.fit(
     crosscoder,
@@ -82,3 +85,4 @@ trainer.fit(
     ],
     # ckpt_path="/data2/mech/logs/V1GDetachWdec0.001/checkpoints/epoch=1-step=3784.ckpt",
 )
+trainer.save_checkpoint()
