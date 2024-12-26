@@ -7,18 +7,27 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, Callback
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from models import V2
+from models import V2, V2NormalizedInput
 from data import LoadTokens
 
 
-VERSION = "V2-RemoveFirstToken-Lambda0.1"
-DESC = "Remove first token as its value is rather abnormal from the rest."
+VERSION = "V2NormalizedInputFixedDecode"
+DESC = "Fixed the .view and .permute"
 
 model_id = "openai-community/gpt2"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
 
-crosscoder = V2(
+# crosscoder = V2(
+#     n_hidden=768,
+#     n_features=768 * 16,
+#     model=model,
+#     layers=["transformer.h.7", "transformer.h.8"],
+#     lmb=0.1,
+#     lr=5e-4,
+#     desc=DESC,
+# ).cuda()
+crosscoder = V2NormalizedInput(
     n_hidden=768,
     n_features=768 * 16,
     model=model,
@@ -26,7 +35,7 @@ crosscoder = V2(
     lmb=0.1,
     lr=5e-4,
     desc=DESC,
-).cuda()
+)
 
 train_dataset = LoadTokens(path="/data3/mech/thepile_gpt2_tokenized/train.npy")
 val_dataset = LoadTokens(path="/data3/mech/thepile_gpt2_tokenized/val.npy")
@@ -53,10 +62,11 @@ class RefreshTrainingMetricCallback(Callback):
 
 trainer = L.Trainer(
     accelerator="gpu",
-    callbacks=[ckpt_callback, ckpt_callback2, RefreshTrainingMetricCallback()],
+    callbacks=[ckpt_callback, ckpt_callback2],
     max_epochs=4,
     logger=logger,
     val_check_interval=0.25,
+    profiler="simple",
     # overfit_batches=1,
     # fast_dev_run=5,
     # limit_train_batches=50,
@@ -64,25 +74,30 @@ trainer = L.Trainer(
 )
 # print("Start training")
 
-trainer.fit(
-    crosscoder,
-    train_dataloaders=[
-        torch.utils.data.DataLoader(
-            train_dataset,
-            batch_size=16,
-            collate_fn=collate_fn,
-            num_workers=4,
-            pin_memory=True,
-        )
-    ],
-    val_dataloaders=[
-        torch.utils.data.DataLoader(
-            val_dataset,
-            batch_size=6,
-            collate_fn=collate_fn,
-            num_workers=4,
-        )
-    ],
-    # ckpt_path="/data2/mech/logs/V1GDetachWdec0.001/checkpoints/epoch=1-step=3784.ckpt",
-)
-trainer.save_checkpoint()
+try:
+    trainer.fit(
+        crosscoder,
+        train_dataloaders=[
+            torch.utils.data.DataLoader(
+                train_dataset,
+                batch_size=16,
+                collate_fn=collate_fn,
+                num_workers=4,
+                pin_memory=True,
+            )
+        ],
+        val_dataloaders=[
+            torch.utils.data.DataLoader(
+                val_dataset,
+                batch_size=6,
+                collate_fn=collate_fn,
+                num_workers=4,
+            )
+        ],
+        # ckpt_path="/data2/mech/logs/V1GDetachWdec0.001/checkpoints/epoch=1-step=3784.ckpt",
+    )
+except KeyboardInterrupt:
+    print("Interrupted")
+    path = Path("logs") / VERSION / "checkpoints" / "interrupted.ckpt"
+    trainer.save_checkpoint(path)
+    print(f"Checkpoint saved at {path}")

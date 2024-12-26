@@ -1,7 +1,8 @@
 import math
-from typing import Callable
+from typing import Callable, Any, Optional
 
 import einops
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -447,8 +448,7 @@ class V2(L.LightningModule):
     def decode(self, a):
         """a has shape: n_batch x n_features"""
         z = torch.matmul(a, self.W_dec)  # n_layers, n_batch, n_hidden
-        n_layers, n_batch, n_hidden = z.shape
-        z = z.view(n_batch, n_layers, n_hidden)
+        z = z.permute(1, 0, 2)  # n_batch, n_layers, n_hidden
         y = z + self.b_dec  # n_batch, n_layers, n_hidden
         return y
 
@@ -466,8 +466,15 @@ class V2(L.LightningModule):
     def configure_optimizers(self):
         return optim.Adam(self.parameters(), lr=self._lr)
 
+    def on_train_batch_start(self, batch: Any, batch_idx: int) -> Optional[int]:
+        self._batch_nb = batch_idx
+        return super().on_train_batch_start(batch, batch_idx)
+
+    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int, *args, **kwargs) -> None:
+        self._batch_nb = -1
+        return super().on_train_batch_end(outputs, batch, batch_idx)
+
     def training_step(self, batch, batch_nb):
-        self._batch_nb = batch_nb
         x = batch[0]
         hidden, act, recon = self.forward(x)
 
@@ -549,6 +556,10 @@ class V2(L.LightningModule):
         del result
         del new_result
 
+    def on_train_epoch_start(self):
+        self.dead_neurons_tracker.initiate()
+        self.l0_tracker.initiate()
+
     def reset_parameters(self) -> None:
         nn.init.kaiming_uniform_(self.W_enc, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_dec, a=math.sqrt(5))
@@ -574,6 +585,48 @@ class V2(L.LightningModule):
                     self.log("train_norm/b_enc_grad", self.b_enc.grad.norm().item())
                 if self.b_dec.grad is not None:
                     self.log("train_norm/b_dec_grad", self.b_dec.grad.norm().item())
+
+
+class V2NormalizedInput(V2):
+    """Normalize the input to crosscoder to have approximately 0 mean and 1 std"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.layer_7_stats: torch.Tensor
+        self.layer_8_stats: torch.Tensor
+        self.register_buffer(
+            "layer_7_stats",
+            torch.from_numpy(np.load("/data3/mech/internals/layer7.stats.npy"))
+        )
+        self.register_buffer(
+            "layer_8_stats",
+            torch.from_numpy(np.load("/data3/mech/internals/layer8.stats.npy"))
+        )
+
+    def apply_hidden_normalization(self, x) -> torch.Tensor:
+        # this handle
+        # TODO: this implementation is not flexible as it assumes there are only 2 layers
+        layer_7 = (x[:, 0, :, :] - self.layer_7_stats[-2]) / self.layer_7_stats[-1]
+        layer_8 = (x[:, 1, :, :] - self.layer_8_stats[-2]) / self.layer_8_stats[-1]
+        return torch.stack([layer_7, layer_8], dim=1).float()
+
+    def forward(self, x):
+        """x has shape: n_batch x ctx_len
+            n_layers x n_hidden"""
+        with torch.no_grad():
+            hidden = self.get_hidden(x)
+            hidden = self.apply_hidden_normalization(hidden)[:,:,1:,:]   # n_batch, n_layers, ctx_len, n_hidden
+            reshaped_hidden = einops.rearrange(hidden, "b l c h -> (b c) l h") # n_batch, layers, hidden
+            if self._batch_nb % 5000 == 0:
+                self.log("train_norm/layer_7_mean", reshaped_hidden[:, 0].mean().item())
+                self.log("train_norm/layer_7_std", reshaped_hidden[:, 0].std(dim=0).mean().item())
+                self.log("train_norm/layer_8_mean", reshaped_hidden[:, 1].mean().item())
+                self.log("train_norm/layer_8_std", reshaped_hidden[:, 1].std(dim=0).mean().item())
+
+        a_ = self.encode(reshaped_hidden)  # n_batch, n_features
+        y = self.decode(a_)  # n_batch, n_layers, n_hidden
+        y = einops.rearrange(y, "(b c) l h -> b l c h", c=hidden.shape[2])  # n_batch, layers, ctx_len, hidden
+        return hidden, a_, y
+
 
 class CrossCoderOp(Op):
     """Create the crosscoder
