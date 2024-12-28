@@ -7,6 +7,7 @@ from multiprocessing import Process, shared_memory
 
 import humanize
 import numpy as np
+import pandas as pd
 import torch
 from tqdm import tqdm
 from torch.utils.data import Dataset
@@ -446,6 +447,35 @@ def count_tokens(path):
     print(f"Total: {humanize.intcomma(count_total)}")
 
 
+def tokenize_lmsys_to_bin(input_path, output_path, start_idx=0):
+    from transformers import AutoTokenizer
+
+    start = time.time()
+    model_id = "openai-community/gpt2"
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    n_tokens = 0
+    if start_idx > 0 and Path(output_path).exists():
+        mode = "ab"
+    else:
+        mode = "wb"
+    with open(output_path, mode) as fo:
+        df = pd.read_parquet(input_path)
+        for idx in range(df.shape[0]):
+            if idx < start_idx:
+                continue
+            if idx % 10000 == 0:
+                print(f" Line {idx}, {time.time() - start}")
+            conversation = df.iloc[idx]['conversation']
+            text = ". ".join([x['content'] for x in conversation])
+            tokens = tokenizer.encode(text)
+            n_tokens += len(tokens)
+            for token in tokens:
+                fo.write(token.to_bytes(2, "big"))
+            fo.write(tokenizer.eos_token_id.to_bytes(2, "big"))
+    print(f"Time taken: {time.time() - start}")
+    print(f"Number of tokens: {n_tokens}")
+
+
 def block_of_tokens(input_dir, output_file, total: int = int(1e9 / 1024 + 1)):
     from dawnet.utils.numpy import NpyAppendArray
 
@@ -488,7 +518,7 @@ class LoadTokens(Dataset):
     def __getitem__(self, idx):
         return self.tokens[idx]
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
     # tokenize_file_to_jsonl(
     #     "/data2/datasets/thepile/train/02.jsonl",
     #     "/data3/mech/thepile_gpt2_tokenized/train/02.jsonl",
@@ -556,3 +586,9 @@ class LoadTokens(Dataset):
     #     "/data3/mech/thepile_gpt2_tokenized/train",
     #     "/data3/mech/thepile_gpt2_tokenized/train.npy",
     # )
+
+    # tokenize_lmsys_to_bin(
+    #     input_path="/data/datasets/lmsys-chat-1m/train-00005-of-00006-fe1acc5d10a9f0e2.parquet",
+    #     output_path="/data3/mech/lmsys_gpt2_tokenized/train-00005-of-00006.bin",
+    # )
+    pass
