@@ -245,6 +245,31 @@ class ExplainedVarianceV2(Metrics):
         })
 
 
+class Fidelity(Metrics):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.name = "fidelity"
+
+    def update(self, x, recon):
+        pass
+
+
+def fidelity(crosscoder, x, model):
+    hidden_acts = crosscoder.get_hidden(x)
+    feat = crosscoder.encode(hidden_acts)
+    zero_feat = torch.zeros_like(feat)
+
+    recon = crosscoder.decode(feat)
+    recon2 = crosscoder.decode(zero_feat)
+
+    l = model(x)
+    l_crosscoder = model.run(recon)
+    l_ablated = model.run(recon2)
+
+    return (l_crosscoder - l) / (l_ablated - l)
+
+
+
 class CrossEntropyDifference(Metrics):
     pass
 
