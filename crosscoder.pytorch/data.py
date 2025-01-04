@@ -1,3 +1,4 @@
+from math import exp
 import os
 import json
 from pathlib import Path
@@ -6,6 +7,7 @@ import time
 from multiprocessing import Process, shared_memory
 
 import humanize
+import lightning as L
 import numpy as np
 import pandas as pd
 import torch
@@ -465,8 +467,8 @@ def tokenize_lmsys_to_bin(input_path, output_path, start_idx=0):
                 continue
             if idx % 10000 == 0:
                 print(f" Line {idx}, {time.time() - start}")
-            conversation = df.iloc[idx]['conversation']
-            text = ". ".join([x['content'] for x in conversation])
+            conversation = df.iloc[idx]["conversation"]
+            text = ". ".join([x["content"] for x in conversation])
             tokens = tokenizer.encode(text)
             n_tokens += len(tokens)
             for token in tokens:
@@ -518,6 +520,206 @@ class LoadTokens(Dataset):
     def __getitem__(self, idx):
         return self.tokens[idx]
 
+
+class LmsysSampler(torch.utils.data.Sampler):
+    """Generate a batch size that can construct approximately an expected n toknes"""
+
+    def __init__(self, records, expected_n_tokens, shuffle=True):
+        self.records = records
+        self.expected_n_tokens = expected_n_tokens
+        self.shuffle = shuffle
+        self.len = sum([len(each) for each in records.values()])
+        self.n_tokens = sum(key * len(value) for key, value in records.items())
+        self.key = list(records.keys())
+        self.weight = np.array([len(each) for each in records.values()]) / self.len
+
+    def __len__(self):
+        return self.n_tokens // self.expected_n_tokens
+
+    def __iter__(self):
+        if self.shuffle:
+            for _ in range(self.n_tokens // self.expected_n_tokens):
+                key = np.random.choice(self.key, p=self.weight)
+                batch_size = self.expected_n_tokens // key
+                if batch_size > len(self.records[key]):
+                    yield [(key, each) for each in range(len(self.records[key]))]
+                else:
+                    yield [
+                        (key, each)
+                        for each in np.random.choice(
+                            len(self.records[key]), batch_size, replace=False
+                        )
+                    ]
+        else:
+            for key in self.key:
+                batch_size = self.expected_n_tokens // key
+                for start_idx in range(0, len(self.records[key]), batch_size):
+                    yield [
+                        (key, each)
+                        for each in range(
+                            start_idx,
+                            min(start_idx + batch_size, len(self.records[key])),
+                        )
+                    ]
+
+
+class Lmsysdataset(L.LightningDataModule):
+    def __init__(self, path, stage, max_ctx_len=1024):
+        self.dir_path = path
+        self.max_ctx_len = max_ctx_len
+        self.stage = stage
+        with open(Path(path) / f"{stage}.json") as fi:
+            self.records = {int(key): value for key, value in json.load(fi).items()}
+            if 0 in self.records:
+                del self.records[0]
+            if 1 in self.records:
+                del self.records[1]
+        self.file_handlers = []
+
+    def setup(self, stage=None):
+        if not self.file_handlers:
+            for fp in sorted(Path(self.dir_path).glob("*.bin")):
+                f = open(fp, "rb")
+                m = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                self.file_handlers.append(m)
+
+    def __getitem__(self, idx):
+        l, f = idx
+        fidx, start = self.records[l][f]
+        self.file_handlers[fidx].seek(start)
+        tokens = [
+            int.from_bytes(self.file_handlers[fidx].read(2), "big") for _ in range(l)
+        ]
+        return np.array(tokens, dtype=np.int64)
+
+    @staticmethod
+    def organize_by_ctx_len(path, max_ctx_len=1024, bytes_per_token=2):
+        import json
+        from pathlib import Path
+        from collections import defaultdict
+
+        files = sorted(Path(path).glob("*.json"))
+        records = defaultdict(list)
+        for fidx, fp in enumerate(files):
+            print("Processing", fp)
+            with open(fp) as fi:
+                data = json.load(fi)
+            for record in data:
+                l = (record[1] - record[0]) // bytes_per_token
+                if l <= max_ctx_len:
+                    records[l].append((fidx, record[0]))
+                    continue
+
+                for i in range(0, l, max_ctx_len):
+                    sl = min(
+                        max_ctx_len,
+                        (record[1] - (record[0] + i * bytes_per_token)) // 2,
+                    )
+                    records[sl].append((fidx, record[0] + i * bytes_per_token))
+
+        with open(Path(path) / "records.json", "w") as fo:
+            json.dump(records, fo)
+
+    @staticmethod
+    def split_train_val_test(path, train_pct=0.9, val_pct=0.05, test_pct=0.05):
+        from pathlib import Path
+        import random
+
+        with (Path(path) / "records.json").open() as fi:
+            records = json.load(fi)
+
+        train = {}
+        val = {}
+        test = {}
+
+        for l in sorted([int(each) for each in records.keys()]):
+            position = records[str(l)]
+            if l == 0:
+                continue
+            random.shuffle(position)
+            begin_val = int(len(position) * train_pct)
+            begin_test = int(len(position) * (train_pct + val_pct))
+
+            train[l] = position[:begin_val]
+            val[l] = position[begin_val:begin_test]
+            test[l] = position[begin_test:]
+            print(l, len(position), len(train[l]), len(val[l]), len(test[l]))
+
+        with open(Path(path) / "train.json", "w") as fo:
+            json.dump(train, fo)
+        with open(Path(path) / "val.json", "w") as fo:
+            json.dump(val, fo)
+        with open(Path(path) / "test.json", "w") as fo:
+            json.dump(test, fo)
+
+    def get_sampler(self, expected_n_tokens=16 * 1024, shuffle=True):
+        return LmsysSampler(
+            self.records, expected_n_tokens=expected_n_tokens, shuffle=shuffle
+        )
+
+    def get_worker_init_fn(self):
+        def init_fn(worker_id):
+            worker_info = torch.utils.data.get_worker_info()
+            dataset = worker_info.dataset
+            dataset.setup()
+
+        return init_fn
+
+    def get_stats(self, layers: list[str], model_id):
+        """Get the hidden layer stats"""
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        from dawnet.inspector import Inspector
+
+        model_id = "openai-community/gpt2"
+        model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+
+        inspector = Inspector(model)
+        for layer in layers:
+            inspector.ad_op(
+                layer,
+                op.CacheModuleInputOutput(no_input=True, output_getter=lambda x: x[0]),
+            )
+
+        dataloader = torch.utils.data.DataLoader(
+            self,
+            batch_sampler=self.get_sampler(expected_n_tokens=6 * 1024, shuffle=False),
+            worker_init_fn=self.get_worker_init_fn(),
+            num_workers=4,
+        )
+        stats = []
+        n_consumed_tokens = 0
+        with torch.no_grad():
+            for input_ in dataloader:
+                _, state = inspector.run(input_)
+                for idx, layer in enumerate(layers):
+                    hidden = state["output"][layer].reshape(-1, 768).cpu().numpy()
+                    minibatch_stats = np.empty((9, 768))
+                    minibatch_size = hidden.shape[0]
+
+                    minibatch_stats[0] = np.min(hidden, axis=0)
+                    minibatch_stats[1] = np.max(hidden, axis=0)
+                    minibatch_stats[2:6] = np.quantile(
+                        hidden, [0.1, 0.25, 0.75, 0.9], axis=0
+                    )
+                    minibatch_stats[6] = np.median(hidden, axis=0)
+                    minibatch_stats[7] = np.mean(hidden, axis=0)
+                    minibatch_stats[8] = np.std(hidden, axis=0)
+
+                    if n_consumed_tokens == 0:
+                        stats.append(minibatch_stats)
+                    else:
+                        stats[idx][0] = np.minimum(stats[idx][0], minibatch_stats[0])
+                        stats[idx][1] = np.maximum(stats[idx][1], minibatch_stats[1])
+                        stats[idx][2:9] = (
+                            stats[idx][2:9] * n_consumed_tokens
+                            + minibatch_stats[2:9] * minibatch_size
+                        ) / (n_consumed_tokens + minibatch_size)
+
+                    n_consumed_tokens += minibatch_size
+
+        return stats
+
+
 if __name__ == "__main__":
     # tokenize_file_to_jsonl(
     #     "/data2/datasets/thepile/train/02.jsonl",
@@ -566,8 +768,8 @@ if __name__ == "__main__":
     # )
 
     # annotate_start_end_bytes(
-    #     "/data3/mech/thepile_gpt2_tokenized/train/29.bin",
-    #     output_path="/data3/mech/thepile_gpt2_tokenized/train/29.annot.json",
+    #     "/data3/mech/lmsys_gpt2_tokenized/train-00005-of-00006.bin",
+    #     output_path="/data3/mech/lmsys_gpt2_tokenized/00005.jsonl",
     # )
 
     # annotate_start_end_bytes(
@@ -591,4 +793,33 @@ if __name__ == "__main__":
     #     input_path="/data/datasets/lmsys-chat-1m/train-00005-of-00006-fe1acc5d10a9f0e2.parquet",
     #     output_path="/data3/mech/lmsys_gpt2_tokenized/train-00005-of-00006.bin",
     # )
-    pass
+    # Lmsysdataset.split_train_val_test(
+    #     path="/data3/mech/lmsys_gpt2_tokenized"
+    # )
+
+    # data = Lmsysdataset(
+    #     path="/data3/mech/lmsys_gpt2_tokenized",
+    #     stage="train",
+    # )
+    # dl = torch.utils.data.DataLoader(
+    #     data,
+    #     batch_sampler=data.get_sampler(),
+    #     worker_init_fn=data.get_worker_init_fn(),
+    #     num_workers=4,
+    # )
+    # result = []
+    # idx = 0
+    # for item in dl:
+    #     print(item.shape)
+    #     idx += 1
+    #     result.append(item)
+    #     if idx > 10:
+    #         break
+    data = Lmsysdataset(
+        path="/data3/mech/lmsys_gpt2_tokenized",
+        stage="train",
+    )
+    stats = data.get_stats(
+        layers=["transformer.h.7", "transformer.h.8"],
+        model_id="openai-community/gpt2"
+    )

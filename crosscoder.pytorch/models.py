@@ -536,8 +536,8 @@ class V2(L.LightningModule):
 
     def validation_step(self, batch, batch_nb):
         """Work on the validation"""
-        n, c = batch.shape
         hidden, feat, recon = self.forward(batch)
+        n, _, c, _ = hidden.shape
         feat = feat.reshape(n, c, -1)
         for metric in self.feat_metrics:
             metric.update(feat)

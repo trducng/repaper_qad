@@ -1,3 +1,6 @@
+import sys
+import traceback
+from pdb import Pdb
 from datetime import timedelta
 from pathlib import Path
 import numpy as np
@@ -8,11 +11,12 @@ from lightning.pytorch.callbacks import ModelCheckpoint, Callback
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from models import V2, V2NormalizedInput
-from data import LoadTokens
+from data import LoadTokens, Lmsysdataset
 
+pdb = Pdb()
 
-VERSION = "V2NormalizedInputFixedDecode"
-DESC = "Fixed the .view and .permute"
+VERSION = "LmSysV2NormalizedInputFixedDecode_Lmb1_Lr5e-4"
+DESC = "Increase the weight of lambda 10 to reduce the number of mean activations"
 
 model_id = "openai-community/gpt2"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -32,13 +36,16 @@ crosscoder = V2NormalizedInput(
     n_features=768 * 16,
     model=model,
     layers=["transformer.h.7", "transformer.h.8"],
-    lmb=0.1,
+    lmb=1,
     lr=5e-4,
     desc=DESC,
 )
 
-train_dataset = LoadTokens(path="/data3/mech/thepile_gpt2_tokenized/train.npy")
-val_dataset = LoadTokens(path="/data3/mech/thepile_gpt2_tokenized/val.npy")
+# train_dataset = LoadTokens(path="/data3/mech/thepile_gpt2_tokenized/train.npy")
+# val_dataset = LoadTokens(path="/data3/mech/thepile_gpt2_tokenized/val.npy")
+train_dataset = Lmsysdataset(path="/data3/mech/lmsys_gpt2_tokenized", stage="train")
+val_dataset = Lmsysdataset(path="/data3/mech/lmsys_gpt2_tokenized", stage="val")
+
 # with torch.no_grad():
 #     token_ids = torch.from_numpy(train_dataset[:4]).long().cuda()
 #     hidden, act, recon = crosscoder(token_ids)
@@ -80,8 +87,9 @@ try:
         train_dataloaders=[
             torch.utils.data.DataLoader(
                 train_dataset,
-                batch_size=16,
-                collate_fn=collate_fn,
+                batch_sampler=train_dataset.get_sampler(),
+                worker_init_fn=train_dataset.get_worker_init_fn(),
+                # collate_fn=collate_fn,
                 num_workers=4,
                 pin_memory=True,
             )
@@ -89,8 +97,9 @@ try:
         val_dataloaders=[
             torch.utils.data.DataLoader(
                 val_dataset,
-                batch_size=6,
-                collate_fn=collate_fn,
+                batch_sampler=val_dataset.get_sampler(expected_n_tokens=6 * 1024),
+                worker_init_fn=val_dataset.get_worker_init_fn(),
+                # collate_fn=collate_fn,
                 num_workers=4,
             )
         ],
@@ -101,3 +110,7 @@ except KeyboardInterrupt:
     path = Path("logs") / VERSION / "checkpoints" / "interrupted.ckpt"
     trainer.save_checkpoint(path)
     print(f"Checkpoint saved at {path}")
+except Exception:
+    traceback.print_exc()
+    t = sys.exc_info()[2]
+    pdb.interaction(None, t)
