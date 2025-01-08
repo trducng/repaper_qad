@@ -7,6 +7,8 @@ from tqdm import tqdm
 
 from dawnet.inspector import Inspector
 
+from data import Lmsysdataset
+
 
 def get_feature(crosscoder, inspector: Inspector, dataloader):
     """Get the feature of for the model. Not necessary. If the crosscoder is
@@ -255,18 +257,45 @@ class Fidelity(Metrics):
 
 
 def fidelity(crosscoder, x, model):
+    import einops
+    from dawnet import op
+
+    inspector = Inspector(model)
+    op_io_id = inspector.add_op("transformer.h.8", op.SetInputOutput())
+    op_io = inspector.get_op(op_io_id)
+
     hidden_acts = crosscoder.get_hidden(x)
-    feat = crosscoder.encode(hidden_acts)
+    hidden = crosscoder.apply_hidden_normalization(hidden_acts)[:,:,1:,:]
+    hidden = einops.rearrange(hidden, "b l c h -> (b c) l h")
+    feat = crosscoder.encode(hidden)
     zero_feat = torch.zeros_like(feat)
 
     recon = crosscoder.decode(feat)
-    recon2 = crosscoder.decode(zero_feat)
+    recon = einops.rearrange(recon, "(b c) l h -> b l c h", b=hidden_acts.shape[0])
+    recon[:,0,:,:] = recon[:,0,:,:] * crosscoder.layer_7_stats[-1] + crosscoder.layer_7_stats[-2]
+    recon[:,1,:,:] = recon[:,1,:,:] * crosscoder.layer_8_stats[-1] + crosscoder.layer_8_stats[-2]
+    recon = torch.cat([hidden_acts[:,:,0,:].unsqueeze(2), recon], dim=2)
 
-    l = model(x)
-    l_crosscoder = model.run(recon)
-    l_ablated = model.run(recon2)
+    recon2 = crosscoder.decode(zero_feat)    # this seems to be the same across input
+    recon2 = einops.rearrange(recon2, "(b c) l h -> b l c h", b=hidden_acts.shape[0])
+    recon2[:,0,:,:] = recon2[:,0,:,:] * crosscoder.layer_7_stats[-1] + crosscoder.layer_7_stats[-2]
+    recon2[:,1,:,:] = recon2[:,1,:,:] * crosscoder.layer_8_stats[-1] + crosscoder.layer_8_stats[-2]
+    recon2 = torch.cat([hidden_acts[:,:,0,:].unsqueeze(2), recon2], dim=2)
 
-    return (l_crosscoder - l) / (l_ablated - l)
+    l, _ = inspector.run(x)
+    l_crosscoder, _ = inspector.run(x, _op_params=[
+        op_io.run_params(output_setter=lambda o: (recon[:,1], *o[1:]))
+    ])
+    l_ablated, _ = inspector.run(x, _op_params=[
+        op_io.run_params(output_setter=lambda o: (recon2[:,1], *o[1:]))
+    ])
+
+    ll = torch.nn.functional.cross_entropy(l.logits.permute(0, 2, 1)[:,:,2:-1], x[:,3:])
+    ll_crosscoder = torch.nn.functional.cross_entropy(l_crosscoder.logits.permute(0, 2, 1)[:,:,2:-1], x[:,3:])
+    ll_ablated = torch.nn.functional.cross_entropy(l_ablated.logits.permute(0, 2, 1)[:,:,2:-1], x[:,3:])
+
+    # print(f"ll: {ll.item()}, ll_crosscoder: {ll_crosscoder.item()}, ll_ablated: {ll_ablated.item()}")
+    return ((ll_crosscoder - ll) / (ll_ablated - ll)).item()
 
 
 
@@ -306,12 +335,52 @@ def evaluate(crosscoder, hidden_loader, metrics: list | None = None):
 
 if __name__ == "__main__":
     import torch
-    from data import IntermediateStateDataset
-    from models import CrossCoderV1
-    train_dataset = IntermediateStateDataset(
-        path1="/data2/mech/internals/transformer.h.8.npy",
-        path2="/data2/mech/internals/transformer.h.9.npy",
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    from data import IntermediateStateDataset, Lmsysdataset
+    from models import V2NormalizedInputWithBatchNorm
+
+    model_id = "openai-community/gpt2"
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+
+    val_dataset = Lmsysdataset(
+        path="/data3/mech/lmsys_gpt2_tokenized", stage="val"
     )
-    hidden_loader = torch.utils.data.DataLoader(train_dataset, batch_size=16)
-    crosscoder = CrossCoderV1.load_from_checkpoint("/home/john/repaper_qad/crosscoder.pytorch/lightning_logs/version_2/checkpoints/epoch=1-step=4038.ckpt").cuda()
-    outputs = sparsity(crosscoder, hidden_loader=hidden_loader)
+    dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_sampler=val_dataset.get_sampler(expected_n_tokens=2 * 1024),
+        worker_init_fn=val_dataset.get_worker_init_fn(),
+        num_workers=4,
+    )
+    crosscoder = V2NormalizedInputWithBatchNorm.load_from_checkpoint(
+        "/data2/mech/logs/LmSysV2NormalizedInputBN_Lmb0.5_Lr5e-4/checkpoints/epoch=3-step=131721.ckpt",
+        model=model,
+        # layer7_stats="/data3/mech/internals/layer7.stats.npy",
+        # layer8_stats="/data3/mech/internals/layer8.stats.npy",
+    ).cuda()
+    # crosscoder = V2NormalizedInput.load_from_checkpoint(
+    #     "/data2/mech/logs/LmSysV2NormalizedInputFixedDecode_Lmb0.5_Lr5e-4/checkpoints/epoch=3-step=131721.ckpt",
+    #     model=model,
+    #     # layer7_stats="/data3/mech/internals/layer7.stats.npy",
+    #     # layer8_stats="/data3/mech/internals/layer8.stats.npy",
+    # ).cuda()
+    # crosscoder = V2NormalizedInput(
+    #     n_hidden=768,
+    #     n_features=768 * 16,
+    #     model=model,
+    #     layers=["transformer.h.7", "transformer.h.8"],
+    #     lmb=1,
+    #     lr=5e-4,
+    #     desc="hehe",
+    # ).cuda()
+    dataloader = iter(dataloader)
+    result = []
+    with torch.no_grad():
+        for idx, x in enumerate(dataloader):
+            fid = fidelity(crosscoder, x.cuda(), model)
+            if fid != fid:
+                continue
+            result.append((fid, x.numel()))
+            if idx % 500 == 0:
+                print(idx, sum([r[0] * r[1] for r in result]) / sum([r[1] for r in result]))
+    print(sum([r[0] * r[1] for r in result]) / sum([r[1] for r in result]))

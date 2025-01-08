@@ -589,17 +589,17 @@ class V2(L.LightningModule):
 
 class V2NormalizedInput(V2):
     """Normalize the input to crosscoder to have approximately 0 mean and 1 std"""
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, layer7_stats, layer8_stats, **kwargs):
         super().__init__(*args, **kwargs)
         self.layer_7_stats: torch.Tensor
         self.layer_8_stats: torch.Tensor
         self.register_buffer(
             "layer_7_stats",
-            torch.from_numpy(np.load("/data3/mech/internals/layer7.stats.npy"))
+            torch.from_numpy(np.load(layer7_stats))
         )
         self.register_buffer(
             "layer_8_stats",
-            torch.from_numpy(np.load("/data3/mech/internals/layer8.stats.npy"))
+            torch.from_numpy(np.load(layer8_stats))
         )
 
     def apply_hidden_normalization(self, x) -> torch.Tensor:
@@ -627,6 +627,46 @@ class V2NormalizedInput(V2):
         y = einops.rearrange(y, "(b c) l h -> b l c h", c=hidden.shape[2])  # n_batch, layers, ctx_len, hidden
         return hidden, a_, y
 
+
+class V2NormalizedInputWithBatchNorm(V2):
+    """Flexible layers"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.bn = nn.BatchNorm1d(self._n_hidden * self._n_layers)
+
+    def apply_hidden_normalization(self, x) -> torch.Tensor:
+        """x has shape n_batch, n_layers, ctx_len, n_hidden"""
+        n_batch, n_layers, ctx_len, n_hidden = x.shape
+        x = einops.rearrange(x, "b l c h -> b (l h) c")
+        x = self.bn(x)
+        x = einops.rearrange(x, "b (l h) c -> b l c h", l=n_layers, h=n_hidden)
+        return x
+
+    def unapply_hidden_normalization(self, x) -> torch.Tensor:
+        """x has shape n_batch, n_layers, ctx_len, n_hidden"""
+        n_batch, n_layers, ctx_len, n_hidden = x.shape
+        x = einops.rearrange(x, "b l c h -> b (l h) c")
+        # x = self.bn(x, track_running_stats=False)
+        import ipdb; ipdb.set_trace()
+        x = einops.rearrange(x, "b (l h) c -> b l c h", l=n_layers, h=n_hidden)
+        return x
+
+    def forward(self, x):
+        """x has shape: n_batch x ctx_len
+            n_layers x n_hidden"""
+        with torch.no_grad():
+            hidden = self.get_hidden(x)
+            hidden = self.apply_hidden_normalization(hidden)[:,:,1:,:]   # n_batch, n_layers, ctx_len, n_hidden
+            reshaped_hidden = einops.rearrange(hidden, "b l c h -> (b c) l h") # n_batch, layers, hidden
+            if self._batch_nb % 5000 == 0:
+                for _idx, layer_name in enumerate(self.layers):
+                    self.log(f"train_norm/layer_{layer_name}_mean", reshaped_hidden[:, _idx].mean().item())
+                    self.log(f"train_norm/layer_{layer_name}_std", reshaped_hidden[:, _idx].std(dim=0).mean().item())
+
+        a_ = self.encode(reshaped_hidden)  # n_batch, n_features
+        y = self.decode(a_)  # n_batch, n_layers, n_hidden
+        y = einops.rearrange(y, "(b c) l h -> b l c h", c=hidden.shape[2])  # n_batch, layers, ctx_len, hidden
+        return hidden, a_, y
 
 class CrossCoderOp(Op):
     """Create the crosscoder

@@ -10,13 +10,13 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, Callback
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from models import V2, V2NormalizedInput
+from models import V2, V2NormalizedInput, V2NormalizedInputWithBatchNorm
 from data import LoadTokens, Lmsysdataset
 
 pdb = Pdb()
 
-VERSION = "LmSysV2NormalizedInputFixedDecode_Lmb1_Lr5e-4"
-DESC = "Increase the weight of lambda 10 to reduce the number of mean activations"
+VERSION = "LmSysV2NormalizedInputBN_Lmb0.5_Lr5e-4"
+DESC = "Try out the normalized with batch norm as a flexible model"
 
 model_id = "openai-community/gpt2"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -31,12 +31,23 @@ model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
 #     lr=5e-4,
 #     desc=DESC,
 # ).cuda()
-crosscoder = V2NormalizedInput(
+# crosscoder = V2NormalizedInput(
+#     n_hidden=768,
+#     n_features=768 * 16,
+#     model=model,
+#     layers=["transformer.h.7", "transformer.h.8"],
+#     lmb=0.5,
+#     lr=5e-4,
+#     desc=DESC,
+#     layer7_stats="/data3/mech/lmsys_gpt2_tokenized/lmsys_layer7_stats.npy",
+#     layer8_stats="/data3/mech/lmsys_gpt2_tokenized/lmsys_layer8_stats.npy",
+# )
+crosscoder = V2NormalizedInputWithBatchNorm(
     n_hidden=768,
     n_features=768 * 16,
     model=model,
     layers=["transformer.h.7", "transformer.h.8"],
-    lmb=1,
+    lmb=0.5,
     lr=5e-4,
     desc=DESC,
 )
