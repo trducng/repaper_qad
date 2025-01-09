@@ -272,14 +272,12 @@ def fidelity(crosscoder, x, model):
 
     recon = crosscoder.decode(feat)
     recon = einops.rearrange(recon, "(b c) l h -> b l c h", b=hidden_acts.shape[0])
-    recon[:,0,:,:] = recon[:,0,:,:] * crosscoder.layer_7_stats[-1] + crosscoder.layer_7_stats[-2]
-    recon[:,1,:,:] = recon[:,1,:,:] * crosscoder.layer_8_stats[-1] + crosscoder.layer_8_stats[-2]
+    recon = crosscoder.unapply_hidden_normalization(recon)
     recon = torch.cat([hidden_acts[:,:,0,:].unsqueeze(2), recon], dim=2)
 
     recon2 = crosscoder.decode(zero_feat)    # this seems to be the same across input
     recon2 = einops.rearrange(recon2, "(b c) l h -> b l c h", b=hidden_acts.shape[0])
-    recon2[:,0,:,:] = recon2[:,0,:,:] * crosscoder.layer_7_stats[-1] + crosscoder.layer_7_stats[-2]
-    recon2[:,1,:,:] = recon2[:,1,:,:] * crosscoder.layer_8_stats[-1] + crosscoder.layer_8_stats[-2]
+    recon2 = crosscoder.unapply_hidden_normalization(recon2)
     recon2 = torch.cat([hidden_acts[:,:,0,:].unsqueeze(2), recon2], dim=2)
 
     l, _ = inspector.run(x)
@@ -373,6 +371,8 @@ if __name__ == "__main__":
     #     lr=5e-4,
     #     desc="hehe",
     # ).cuda()
+    crosscoder = crosscoder.eval()
+    model = model.eval()
     dataloader = iter(dataloader)
     result = []
     with torch.no_grad():
